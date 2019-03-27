@@ -1,0 +1,23 @@
+osp interface for managing time
+
+Locks (spin and regular)
+
+  record caller?
+
+  deadlock detector on sleep?
+
+  time spent sleeping,
+
+Future<x> to create a future thread.
+
+  also need waitFor, waitAll, waitAny with lists of threads
+
+  provide a user defined thread next/prev pair?
+
+  cancel interface?
+
+Server interface, with Server<X> being a server that handles requests of type X.  Need send/await
+interface
+
+should we get stack size from thread method?
+
