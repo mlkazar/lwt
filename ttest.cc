@@ -4,7 +4,7 @@
 #include <sys/time.h>
 #include <stdio.h>
 
-#include "task.h"
+#include "thread.h"
 
 long long getus()
 {
@@ -13,11 +13,11 @@ long long getus()
     return tv.tv_sec*1000000 + tv.tv_usec;
 }
 
-class PingTask;
-class PongTask;
+class PingThread;
+class PongThread;
 
-PingTask *main_pingp;
-PongTask *main_pongp;
+PingThread *main_pingp;
+PongThread *main_pongp;
 
 SpinLock main_lock;
 int main_pingWaiting;
@@ -25,52 +25,52 @@ int main_pongWaiting;
 long main_counter;
 long main_maxCount;
 
-class PingTask : public Task
+class PingThread : public Thread
 {
 public:
     SpinLock *_lockp;
-    PongTask *_pongTaskp;
+    PongThread *_pongThreadp;
     void start();
 
-    void setParms(PongTask *pongTaskp, SpinLock *lockp) {
-        _pongTaskp = pongTaskp;
+    void setParms(PongThread *pongThreadp, SpinLock *lockp) {
+        _pongThreadp = pongThreadp;
         _lockp = lockp;
     }
 };
 
-class PongTask : public Task
+class PongThread : public Thread
 {
 public:
     SpinLock *_lockp;
-    PingTask *_pingTaskp;
+    PingThread *_pingThreadp;
     void start();
 
-    void setParms(PingTask *pingTaskp, SpinLock *lockp) {
-        _pingTaskp = pingTaskp;
+    void setParms(PingThread *pingThreadp, SpinLock *lockp) {
+        _pingThreadp = pingThreadp;
         _lockp = lockp;
     }
 };
 
 class PingPong {
-    PingTask *_pingTaskp;
-    PongTask *_pongTaskp;
+    PingThread *_pingThreadp;
+    PongThread *_pongThreadp;
     SpinLock _lock;
 
 public:
     void init() {
-        _pingTaskp = new PingTask();
-        _pongTaskp = new PongTask();
-        _pingTaskp->setParms(_pongTaskp, &_lock);
-        _pongTaskp->setParms(_pingTaskp, &_lock);
+        _pingThreadp = new PingThread();
+        _pongThreadp = new PongThread();
+        _pingThreadp->setParms(_pongThreadp, &_lock);
+        _pongThreadp->setParms(_pingThreadp, &_lock);
         
-        /* now start the ping task */
-        _pingTaskp->queue();
+        /* now start the ping thread */
+        _pingThreadp->queue();
     };
 };
 
 void
-PingTask::start() {
-    TaskDispatcher *disp = TaskDispatcher::currentDispatcher();
+PingThread::start() {
+    ThreadDispatcher *disp = ThreadDispatcher::currentDispatcher();
     long long startUs;
 
     printf("ping starts\n");
@@ -78,24 +78,24 @@ PingTask::start() {
     while(1) {
         _lockp->take();
         if (main_counter++ > main_maxCount) {
-            printf("%d task round trips, %d ns each\n",
+            printf("%d thread round trips, %d ns each\n",
                    main_maxCount, (getus() - startUs) * 1000 / main_maxCount);
             printf("Done!\n");
             return;
         }
-        _pongTaskp->queue();
-        TaskDispatcher::sleep(_lockp);
+        _pongThreadp->queue();
+        ThreadDispatcher::sleep(_lockp);
     }
 }
 
 void
-PongTask::start() {
-    TaskDispatcher *disp = TaskDispatcher::currentDispatcher();
+PongThread::start() {
+    ThreadDispatcher *disp = ThreadDispatcher::currentDispatcher();
     printf("pong starts\n");
     while(1) {
         _lockp->take();
-        _pingTaskp->queue();
-        TaskDispatcher::sleep(_lockp);
+        _pingThreadp->queue();
+        ThreadDispatcher::sleep(_lockp);
     }
 }
 
@@ -123,9 +123,9 @@ main(int argc, char **argv)
            main_maxCount, (getus() - startUs) * 1000 / main_maxCount);
 
     /* start the dispatcher */
-    TaskDispatcher::setup(/* # of pthreads */ 2);
+    ThreadDispatcher::setup(/* # of pthreads */ 2);
 
-    /* start task on a dispatcher */
+    /* start thread on a dispatcher */
     for(i=0;i<4;i++) {
         pingPongp = new PingPong();
         pingPongp->init();

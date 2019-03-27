@@ -1,20 +1,24 @@
-all: lwptest ptest ttest
+all: cxtest ptest ttest libthread.a
 
 clean:
-	-rm -f ptest lwptest ttest *.o
+	-rm -f ptest cxtest ttest *.o *.a
+
+libthread.a: thread.o
+	ar cr libthread.a thread.o
+	ranlib libthread.a
 
 ptest: ptest.cc
 	g++ -g -o ptest ptest.cc -pthread
 
-lwptest: lwptest.cc
-	g++ -g -o lwptest lwptest.cc
+cxtest: cxtest.cc
+	g++ -g -o cxtest cxtest.cc
 
-ttest.o: task.h ttest.cc
+ttest.o: thread.h ttest.cc
 	g++ -c -g -o ttest.o ttest.cc -pthread
 
-task.o: task.cc task.h
-	g++ -c -g -o task.o task.cc -pthread
+thread.o: thread.cc thread.h
+	g++ -c -g -o thread.o thread.cc -pthread
 
-ttest: ttest.o task.o
-	g++ -g -o ttest ttest.o task.o -pthread
+ttest: ttest.o libthread.a
+	g++ -g -o ttest ttest.o libthread.a -pthread
 

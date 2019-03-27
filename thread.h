@@ -1,5 +1,5 @@
-#ifndef __TASK_H_ENV__
-#define __TASK_H_ENV__ 1
+#ifndef __THREAD_H_ENV__
+#define __THREAD_H_ENV__ 1
 
 #include <unistd.h>
 #include <stdlib.h>
@@ -10,12 +10,12 @@
 #include "dqueue.h"
 
 /* does a pointer fit in an integer? */
-#define TASK_PTR_FITS_IN_INT    1
-//#define TASK_PTR_FITS_IN_INT    0
+#define THREAD_PTR_FITS_IN_INT    1
+//#define THREAD_PTR_FITS_IN_INT    0
 
-class Task;
-class TaskEntry;
-class TaskDispatcher;
+class Thread;
+class ThreadEntry;
+class ThreadDispatcher;
 
 class SpinLock {
  public:
@@ -64,36 +64,36 @@ class SpinLock {
     }
 };
 
-class TaskEntry {
+class ThreadEntry {
  public:
-    TaskEntry *_dqNextp;
-    TaskEntry *_dqPrevp;
-    Task *_taskp;       /* back ptr */
+    ThreadEntry *_dqNextp;
+    ThreadEntry *_dqPrevp;
+    Thread *_threadp;       /* back ptr */
 };
 
-class Task {
+class Thread {
  public:
-    typedef void (InitProc) (void *contextp, Task *taskp);
+    typedef void (InitProc) (void *contextp, Thread *threadp);
 
-    static dqueue<TaskEntry> _allTasks;
-    static SpinLock _globalTaskLock;
+    static dqueue<ThreadEntry> _allThreads;
+    static SpinLock _globalThreadLock;
 
-    /* for when task is blocked */
-    Task *_dqNextp;
-    Task *_dqPrevp;
+    /* for when thread is blocked */
+    Thread *_dqNextp;
+    Thread *_dqPrevp;
 
-    TaskEntry _allEntry;
+    ThreadEntry _allEntry;
     ucontext_t _ctx;
     int _goingToSleep;
 
     static void ctxStart(int p1, int p2);
 
  public:
-    Task() {
+    Thread() {
         _goingToSleep = 0;
-        _globalTaskLock.take();
-        _allTasks.append(&_allEntry);
-        _globalTaskLock.release();
+        _globalThreadLock.take();
+        _allThreads.append(&_allEntry);
+        _globalThreadLock.release();
 
         init();
     }
@@ -107,17 +107,17 @@ class Task {
     void queue();
 };
 
-/* this task provides a context for running the dispatcher, so that when a task
+/* this thread provides a context for running the dispatcher, so that when a thread
  * blocks, we can run the dispatcher without staying on the same stack.
  */
-class TaskIdle : public Task {
+class ThreadIdle : public Thread {
  public:
     SpinLock *_userLockToReleasep;
-    TaskDispatcher *_disp;
+    ThreadDispatcher *_disp;
 
     void start();
 
-    TaskIdle() {
+    ThreadIdle() {
         _userLockToReleasep = NULL;
     }
 
@@ -132,45 +132,45 @@ class TaskIdle : public Task {
     }
 };
 
-class TaskDispatcher
+class ThreadDispatcher
 {
  public:
     static pthread_once_t _once;
     static pthread_key_t _dispatcherKey;
     static const long _maxDispatchers=8;
 
-    static TaskDispatcher *_allDispatchers[_maxDispatchers];
+    static ThreadDispatcher *_allDispatchers[_maxDispatchers];
     static uint16_t _dispatcherCount;
 
-    dqueue<Task> _runQueue;
+    dqueue<Thread> _runQueue;
     SpinLock _runQueueLock;
 
-    Task *_currentTaskp;
+    Thread *_currentThreadp;
     int _sleeping;
     pthread_cond_t _runCV;
     pthread_mutex_t _runMutex;
 
-    /* an idle task that provides a task with a stack on which we can run
+    /* an idle thread that provides a thread with a stack on which we can run
      * the dispatcher.
      */
-    TaskIdle _idle;
+    ThreadIdle _idle;
 
     static void globalInit() {
         pthread_key_create(&_dispatcherKey, NULL);
     }
 
-    static TaskDispatcher *currentDispatcher();
+    static ThreadDispatcher *currentDispatcher();
 
     static void *dispatcherTop(void *ctx);
 
  public:
-    /* called to put task to sleep on current dispatcher, and then dispatch
-     * more tasks.
+    /* called to put thread to sleep on current dispatcher, and then dispatch
+     * more threads.
      */
     static void sleep(SpinLock *lockp);
 
-    /* queue this task on this dispatcher */
-    void queueTask(Task *taskp);
+    /* queue this thread on this dispatcher */
+    void queueThread(Thread *threadp);
 
     /* called to look for work in the run queue, or wait until some shows up */
     void dispatch();
@@ -178,7 +178,7 @@ class TaskDispatcher
     /* called to create a bunch of dispatchers and their pthreads */
     static void setup(uint16_t ndispatchers);
 
-    TaskDispatcher();
+    ThreadDispatcher();
 };
 
-#endif /* __TASK_H_ENV__ */ 
+#endif /* __THREAD_H_ENV__ */ 

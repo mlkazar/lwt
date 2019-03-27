@@ -4,19 +4,19 @@
 #include <sys/time.h>
 #include <stdio.h>
 
-#include "task.h"
+#include "thread.h"
 
-pthread_key_t TaskDispatcher::_dispatcherKey;
-pthread_once_t TaskDispatcher::_once;
-TaskDispatcher *TaskDispatcher::_allDispatchers[TaskDispatcher::_maxDispatchers];
-uint16_t TaskDispatcher::_dispatcherCount;
+pthread_key_t ThreadDispatcher::_dispatcherKey;
+pthread_once_t ThreadDispatcher::_once;
+ThreadDispatcher *ThreadDispatcher::_allDispatchers[ThreadDispatcher::_maxDispatchers];
+uint16_t ThreadDispatcher::_dispatcherCount;
 
-SpinLock Task::_globalTaskLock;
-dqueue<TaskEntry> Task::_allTasks;
+SpinLock Thread::_globalThreadLock;
+dqueue<ThreadEntry> Thread::_allThreads;
 
-/* internal function doing some of the initialization of a task */
+/* internal function doing some of the initialization of a thread */
 void
-Task::init()
+Thread::init()
 {
     static const long memSize = 1024*1024;
     getcontext(&_ctx);
@@ -24,7 +24,7 @@ Task::init()
     _ctx.uc_stack.ss_sp = malloc(memSize);
     _ctx.uc_stack.ss_size = memSize;
     _ctx.uc_stack.ss_flags = 0;
-#if TASK_PTR_FITS_IN_INT
+#if THREAD_PTR_FITS_IN_INT
     makecontext(&_ctx, (void (*)()) &ctxStart, 
                 2,
                 (int) ((long) this),
@@ -37,43 +37,43 @@ Task::init()
 #endif
 }
 
-/* called to start a light weight task */
+/* called to start a light weight thread */
 /* static */ void
-Task::ctxStart(int p1, int p2)
+Thread::ctxStart(int p1, int p2)
 {
-    /* reconstruct task pointer */
-#if TASK_PTR_FITS_IN_INT
-    long taskInt = (long) p1;
+    /* reconstruct thread pointer */
+#if THREAD_PTR_FITS_IN_INT
+    long threadInt = (long) p1;
 #else
-    long taskInt = (((long) p2)<<32) + (long)p1;
+    long threadInt = (((long) p2)<<32) + (long)p1;
 #endif
-    Task *taskp = (Task *)taskInt;
+    Thread *threadp = (Thread *)threadInt;
 
-    taskp->start();
-    printf("Task %p returned from start\n", taskp);
+    threadp->start();
+    printf("Thread %p returned from start\n", threadp);
 }
 
-/* called to resume a task, or start it if it has never been run before */
+/* called to resume a thread, or start it if it has never been run before */
 void
-Task::resume()
+Thread::resume()
 {
     setcontext(&_ctx);
 }
 
-/* find a suitable dispatcher and queue the task for it */
+/* find a suitable dispatcher and queue the thread for it */
 void
-Task::queue()
+Thread::queue()
 {
     int ix;
     
     ix = (int) this;
-    ix = (ix % 127) % TaskDispatcher::_dispatcherCount;
-    TaskDispatcher::_allDispatchers[ix]->queueTask(this);
+    ix = (ix % 127) % ThreadDispatcher::_dispatcherCount;
+    ThreadDispatcher::_allDispatchers[ix]->queueThread(this);
 }
 
-/* idle task whose context can be resumed */
+/* idle thread whose context can be resumed */
 void
-TaskIdle::start()
+ThreadIdle::start()
 {
     SpinLock *lockp;
     
@@ -86,20 +86,20 @@ TaskIdle::start()
     }
 }
 
-/* should we switch to an idle task before sleeping?  Probably, since
- * otherwise we might be asleep when another CPU resumes the task
+/* should we switch to an idle thread before sleeping?  Probably, since
+ * otherwise we might be asleep when another CPU resumes the thread
  * above us on the stack.  Actually, this can happen even if we don't
  * go to sleep.  We really have to be off this stack before we call
  * drop the 
  */
 void
-TaskDispatcher::dispatch()
+ThreadDispatcher::dispatch()
 {
-    Task *newTaskp;
+    Thread *newThreadp;
     while(1) {
         _runQueueLock.take();
-        newTaskp = _runQueue.pop();
-        if (!newTaskp) {
+        newThreadp = _runQueue.pop();
+        if (!newThreadp) {
             _sleeping = 1;
             _runQueueLock.release();
             pthread_mutex_lock(&_runMutex);
@@ -110,23 +110,23 @@ TaskDispatcher::dispatch()
         }
         else{
             _runQueueLock.release();
-            _currentTaskp = newTaskp;
-            newTaskp->resume();   /* doesn't return */
+            _currentThreadp = newThreadp;
+            newThreadp->resume();   /* doesn't return */
         }
     }
 }
 
-/* When a task needs to block for some condition, the paradigm is that
+/* When a thread needs to block for some condition, the paradigm is that
  * it will have some SpinLock held holding invariant some condition,
  * such as the state of a mutex.  As soon as that spin lock is
- * released, another processor might see this task in a lock queue,
- * and queue it to a dispatcher.  We need to ensure that the task's
+ * released, another processor might see this thread in a lock queue,
+ * and queue it to a dispatcher.  We need to ensure that the thread's
  * state is properly stored before allowing a wakeup operation
- * (queueTask) to begin.
+ * (queueThread) to begin.
  *
  * In the context of this function, this means we must finish the
  * getcontext call and the clearing of _goingToSleep before allowing
- * the task to get queued again, so that when the task is resumed
+ * the thread to get queued again, so that when the thread is resumed
  * after the getcontext call, it will simply return to the caller.
  *
  * Note that this means that the unlock will get performed by the
@@ -134,26 +134,26 @@ TaskDispatcher::dispatch()
  * it may be running on a different dispatcher.
  */
 /* static */ void
-TaskDispatcher::sleep(SpinLock *lockp)
+ThreadDispatcher::sleep(SpinLock *lockp)
 {
-    TaskDispatcher *disp = (TaskDispatcher *) pthread_getspecific(TaskDispatcher::_dispatcherKey);
-    Task *taskp;
+    ThreadDispatcher *disp = (ThreadDispatcher *) pthread_getspecific(ThreadDispatcher::_dispatcherKey);
+    Thread *threadp;
     
-    taskp = disp->_currentTaskp;
-    disp->_currentTaskp = NULL;
+    threadp = disp->_currentThreadp;
+    disp->_currentThreadp = NULL;
 
-    taskp->_goingToSleep = 1;
-    getcontext(&taskp->_ctx);
-    if (taskp->_goingToSleep) {
-        taskp->_goingToSleep = 0;
+    threadp->_goingToSleep = 1;
+    getcontext(&threadp->_ctx);
+    if (threadp->_goingToSleep) {
+        threadp->_goingToSleep = 0;
 
-        /* prepare to get off this stack, so if this task gets resumed
+        /* prepare to get off this stack, so if this thread gets resumed
          * after we drop the user's spinlock, we're not using this
          * stack any longer.
          *
-         * The idle context will resume at TaskIdle::start, either at
+         * The idle context will resume at ThreadIdle::start, either at
          * the start or in the while loop, and will then dispatch the
-         * next task from the run queue.
+         * next thread from the run queue.
          */
         disp->_idle._userLockToReleasep = lockp;
         setcontext(&disp->_idle._ctx);
@@ -161,23 +161,23 @@ TaskDispatcher::sleep(SpinLock *lockp)
         printf("!Error: somehow back from sleep's setcontext disp=%p\n", disp);
     }
     else {
-        /* this task is being woken up */
+        /* this thread is being woken up */
         return;
     }
 }
 
-/* static */ TaskDispatcher *
-TaskDispatcher::currentDispatcher()
+/* static */ ThreadDispatcher *
+ThreadDispatcher::currentDispatcher()
 {
-    TaskDispatcher *disp = (TaskDispatcher *) pthread_getspecific(TaskDispatcher::_dispatcherKey);
+    ThreadDispatcher *disp = (ThreadDispatcher *) pthread_getspecific(ThreadDispatcher::_dispatcherKey);
     return disp;
 }
 
 void
-TaskDispatcher::queueTask(Task *taskp)
+ThreadDispatcher::queueThread(Thread *threadp)
 {
     _runQueueLock.take();
-    _runQueue.append(taskp);
+    _runQueue.append(threadp);
     if (_sleeping) {
         _runQueueLock.release();
         pthread_mutex_lock(&_runMutex);
@@ -191,27 +191,27 @@ TaskDispatcher::queueTask(Task *taskp)
 }
 
 /* static */ void *
-TaskDispatcher::dispatcherTop(void *ctx)
+ThreadDispatcher::dispatcherTop(void *ctx)
 {
-    TaskDispatcher *disp = (TaskDispatcher *)ctx;
+    ThreadDispatcher *disp = (ThreadDispatcher *)ctx;
     pthread_setspecific(_dispatcherKey, disp);
-    disp->_idle.resume(); /* idle task switches to new stack and then calls the dispatcher */
+    disp->_idle.resume(); /* idle thread switches to new stack and then calls the dispatcher */
     printf("Error: dispatcher %p top level return!!\n", disp);
 }
 
 /* the setup function creates a set of dispatchers */
 /* static */ void
-TaskDispatcher::setup(uint16_t ndispatchers)
+ThreadDispatcher::setup(uint16_t ndispatchers)
 {
     pthread_t junk;
     uint32_t i;
 
     for(i=0;i<ndispatchers;i++) {
-        new TaskDispatcher();
+        new ThreadDispatcher();
     }
 
     /* call each dispatcher's dispatch function on a separate pthread;
-     * note that the TaskDispatcher constructor filled in _allDispatchers
+     * note that the ThreadDispatcher constructor filled in _allDispatchers
      * array.
      */
     for(i=0;i<ndispatchers;i++) {
@@ -219,15 +219,15 @@ TaskDispatcher::setup(uint16_t ndispatchers)
     }
 }
 
-TaskDispatcher::TaskDispatcher() {
-    Task::_globalTaskLock.take();
+ThreadDispatcher::ThreadDispatcher() {
+    Thread::_globalThreadLock.take();
     _allDispatchers[_dispatcherCount++] = this;
-    Task::_globalTaskLock.release();
+    Thread::_globalThreadLock.release();
 
     _sleeping = 0;
-    _currentTaskp = NULL;
+    _currentThreadp = NULL;
     _idle._disp = this;
     pthread_mutex_init(&_runMutex, NULL);
     pthread_cond_init(&_runCV, NULL);
-    pthread_once(&_once, &TaskDispatcher::globalInit);
+    pthread_once(&_once, &ThreadDispatcher::globalInit);
 }
