@@ -1,17 +1,12 @@
-all: cxtest ptest ttest libthread.a
+all: ttest libthread.a
 
 clean:
-	-rm -f ptest cxtest ttest *.o *.a
+	-rm -f ttest *.o *.a
+	(cd alternatives; make clean)
 
 libthread.a: thread.o
 	ar cr libthread.a thread.o
 	ranlib libthread.a
-
-ptest: ptest.cc
-	g++ -g -o ptest ptest.cc -pthread
-
-cxtest: cxtest.cc
-	g++ -g -o cxtest cxtest.cc
 
 ttest.o: thread.h ttest.cc
 	g++ -c -g -o ttest.o ttest.cc -pthread
@@ -21,4 +16,3 @@ thread.o: thread.cc thread.h
 
 ttest: ttest.o libthread.a
 	g++ -g -o ttest ttest.o libthread.a -pthread
-

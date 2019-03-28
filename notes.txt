@@ -1,4 +1,7 @@
+check boost::context (fcontext_t)
+
 osp interface for managing time
+  std::chrono::highresolution_clock
 
 Locks (spin and regular)
 
@@ -7,6 +10,8 @@ Locks (spin and regular)
   deadlock detector on sleep?
 
   time spent sleeping,
+
+  abandon lock attempt after N microseconds
 
 Future<x> to create a future thread.
 
@@ -20,4 +25,8 @@ Server interface, with Server<X> being a server that handles requests of type X.
 interface
 
 should we get stack size from thread method?
+
+Alternative implementations:
+
+https://github.com/facebook/folly/tree/master/folly/docs (big)
 
