@@ -70,7 +70,6 @@ public:
 
 void
 PingThread::start() {
-    ThreadDispatcher *disp = ThreadDispatcher::currentDispatcher();
     long long startUs;
 
     printf("ping starts\n");
@@ -84,18 +83,17 @@ PingThread::start() {
             return;
         }
         _pongThreadp->queue();
-        ThreadDispatcher::sleep(_lockp);
+        Thread::sleep(_lockp);
     }
 }
 
 void
 PongThread::start() {
-    ThreadDispatcher *disp = ThreadDispatcher::currentDispatcher();
     printf("pong starts\n");
     while(1) {
         _lockp->take();
         _pingThreadp->queue();
-        ThreadDispatcher::sleep(_lockp);
+        Thread::sleep(_lockp);
     }
 }
 
@@ -126,7 +124,7 @@ main(int argc, char **argv)
     ThreadDispatcher::setup(/* # of pthreads */ 2);
 
     /* start thread on a dispatcher */
-    for(i=0;i<4;i++) {
+    for(i=0;i<8;i++) {
         pingPongp = new PingPong();
         pingPongp->init();
     }

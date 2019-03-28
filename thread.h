@@ -84,9 +84,13 @@ class Thread {
 
     ThreadEntry _allEntry;
     ucontext_t _ctx;
+
+    /* everything BEFORE this point is tracked in gdb */
+
+    ThreadDispatcher *_currentDispatcherp; /* current dispatcher for running thread */
     int _goingToSleep;
 
-    static void ctxStart(int p1, int p2);
+    static void ctxStart(unsigned int p1, unsigned int p2);
 
  public:
     Thread() {
@@ -94,11 +98,14 @@ class Thread {
         _globalThreadLock.take();
         _allThreads.append(&_allEntry);
         _globalThreadLock.release();
+        _currentDispatcherp = NULL;
 
         init();
     }
 
     virtual void start() = 0;
+
+    void sleep(SpinLock *lockp);
 
     void init();
 
@@ -167,7 +174,7 @@ class ThreadDispatcher
     /* called to put thread to sleep on current dispatcher, and then dispatch
      * more threads.
      */
-    static void sleep(SpinLock *lockp);
+    void sleep(Thread *threadp, SpinLock *lockp);
 
     /* queue this thread on this dispatcher */
     void queueThread(Thread *threadp);

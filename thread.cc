@@ -3,8 +3,14 @@
 #include <stdlib.h>
 #include <sys/time.h>
 #include <stdio.h>
+#include <assert.h>
 
 #include "thread.h"
+
+extern "C" {
+extern int xgetcontext(ucontext_t *ctxp);
+extern int xsetcontext(ucontext_t *ctxp);
+};
 
 pthread_key_t ThreadDispatcher::_dispatcherKey;
 pthread_once_t ThreadDispatcher::_once;
@@ -19,7 +25,7 @@ void
 Thread::init()
 {
     static const long memSize = 1024*1024;
-    getcontext(&_ctx);
+    xgetcontext(&_ctx);
     _ctx.uc_link = NULL;
     _ctx.uc_stack.ss_sp = malloc(memSize);
     _ctx.uc_stack.ss_size = memSize;
@@ -39,13 +45,13 @@ Thread::init()
 
 /* called to start a light weight thread */
 /* static */ void
-Thread::ctxStart(int p1, int p2)
+Thread::ctxStart(unsigned int p1, unsigned int p2)
 {
     /* reconstruct thread pointer */
 #if THREAD_PTR_FITS_IN_INT
-    long threadInt = (long) p1;
+    unsigned long threadInt = (unsigned long) p1;
 #else
-    long threadInt = (((long) p2)<<32) + (long)p1;
+    unsigned long threadInt = (((unsigned long) p2)<<32) + (unsigned long)p1;
 #endif
     Thread *threadp = (Thread *)threadInt;
 
@@ -57,18 +63,24 @@ Thread::ctxStart(int p1, int p2)
 void
 Thread::resume()
 {
-    setcontext(&_ctx);
+    xsetcontext(&_ctx);
 }
 
 /* find a suitable dispatcher and queue the thread for it */
 void
 Thread::queue()
 {
-    int ix;
+    unsigned int ix;
     
-    ix = (int) this;
+    ix = (unsigned int) this;
     ix = (ix % 127) % ThreadDispatcher::_dispatcherCount;
     ThreadDispatcher::_allDispatchers[ix]->queueThread(this);
+}
+
+void
+Thread::sleep(SpinLock *lockp)
+{
+    _currentDispatcherp->sleep(this, lockp);
 }
 
 /* idle thread whose context can be resumed */
@@ -78,7 +90,7 @@ ThreadIdle::start()
     SpinLock *lockp;
     
     while(1) {
-        getcontext(&_ctx);
+        xgetcontext(&_ctx);
         lockp = getLockAndClear();
         if (lockp)
             lockp->release();
@@ -111,6 +123,7 @@ ThreadDispatcher::dispatch()
         else{
             _runQueueLock.release();
             _currentThreadp = newThreadp;
+            newThreadp->_currentDispatcherp = this;
             newThreadp->resume();   /* doesn't return */
         }
     }
@@ -133,17 +146,13 @@ ThreadDispatcher::dispatch()
  * same dispatcher as obtained the spin lock, but when sleep returns,
  * it may be running on a different dispatcher.
  */
-/* static */ void
-ThreadDispatcher::sleep(SpinLock *lockp)
+void
+ThreadDispatcher::sleep(Thread *threadp, SpinLock *lockp)
 {
-    ThreadDispatcher *disp = (ThreadDispatcher *) pthread_getspecific(ThreadDispatcher::_dispatcherKey);
-    Thread *threadp;
-    
-    threadp = disp->_currentThreadp;
-    disp->_currentThreadp = NULL;
-
+    assert(threadp == _currentThreadp);
+    _currentThreadp = NULL;
     threadp->_goingToSleep = 1;
-    getcontext(&threadp->_ctx);
+    xgetcontext(&threadp->_ctx);
     if (threadp->_goingToSleep) {
         threadp->_goingToSleep = 0;
 
@@ -155,22 +164,15 @@ ThreadDispatcher::sleep(SpinLock *lockp)
          * the start or in the while loop, and will then dispatch the
          * next thread from the run queue.
          */
-        disp->_idle._userLockToReleasep = lockp;
-        setcontext(&disp->_idle._ctx);
+        _idle._userLockToReleasep = lockp;
+        xsetcontext(&_idle._ctx);
 
-        printf("!Error: somehow back from sleep's setcontext disp=%p\n", disp);
+        printf("!Error: somehow back from sleep's setcontext disp=%p\n", this);
     }
     else {
         /* this thread is being woken up */
         return;
     }
-}
-
-/* static */ ThreadDispatcher *
-ThreadDispatcher::currentDispatcher()
-{
-    ThreadDispatcher *disp = (ThreadDispatcher *) pthread_getspecific(ThreadDispatcher::_dispatcherKey);
-    return disp;
 }
 
 void
