@@ -20,12 +20,14 @@ uint16_t ThreadDispatcher::_dispatcherCount;
 SpinLock Thread::_globalThreadLock;
 dqueue<ThreadEntry> Thread::_allThreads;
 
+/*****************Thread*****************/
+
 /* internal function doing some of the initialization of a thread */
 void
 Thread::init()
 {
     static const long memSize = 1024*1024;
-    xgetcontext(&_ctx);
+    GETCONTEXT(&_ctx);
     _ctx.uc_link = NULL;
     _ctx.uc_stack.ss_sp = malloc(memSize);
     _ctx.uc_stack.ss_size = memSize;
@@ -43,7 +45,7 @@ Thread::init()
 #endif
 }
 
-/* called to start a light weight thread */
+/* internal; called to start a light weight thread on a new stack */
 /* static */ void
 Thread::ctxStart(unsigned int p1, unsigned int p2)
 {
@@ -59,14 +61,16 @@ Thread::ctxStart(unsigned int p1, unsigned int p2)
     printf("Thread %p returned from start\n", threadp);
 }
 
-/* called to resume a thread, or start it if it has never been run before */
+/* internal; called to resume a thread, or start it if it has never been run before */
 void
 Thread::resume()
 {
-    xsetcontext(&_ctx);
+    SETCONTEXT(&_ctx);
 }
 
-/* find a suitable dispatcher and queue the thread for it */
+/* external, find a suitable dispatcher and queue the thread for it.  Has round-robin
+ * policy built in for now.
+ */
 void
 Thread::queue()
 {
@@ -77,20 +81,36 @@ Thread::queue()
     ThreadDispatcher::_allDispatchers[ix]->queueThread(this);
 }
 
+/* external, put a thread to sleep and then release the spin lock */
 void
 Thread::sleep(SpinLock *lockp)
 {
     _currentDispatcherp->sleep(this, lockp);
 }
 
-/* idle thread whose context can be resumed */
+/* static */ Thread *
+Thread::getCurrent() 
+{
+    ThreadDispatcher *disp = ((ThreadDispatcher *)
+                              pthread_getspecific(ThreadDispatcher::_dispatcherKey));
+    return disp->_currentThreadp;
+}
+
+/*****************ThreadIdle*****************/
+
+/* internal idle thread whose context can be resumed; used to get off
+ * of stack of thread going to sleep, so that if sleeping thread gets
+ * woken immediately after the sleep lock is released, its use of its
+ * own stack won't interfere with our continuing to run the
+ * dispatcher.
+ */
 void
 ThreadIdle::start()
 {
     SpinLock *lockp;
     
     while(1) {
-        xgetcontext(&_ctx);
+        GETCONTEXT(&_ctx);
         lockp = getLockAndClear();
         if (lockp)
             lockp->release();
@@ -98,22 +118,26 @@ ThreadIdle::start()
     }
 }
 
-/* should we switch to an idle thread before sleeping?  Probably, since
- * otherwise we might be asleep when another CPU resumes the thread
- * above us on the stack.  Actually, this can happen even if we don't
- * go to sleep.  We really have to be off this stack before we call
- * drop the 
+/*****************ThreadDispatcher*****************/
+
+/* Internal; find a thread in our dispastcher's run queue, and resume
+ * it.  Go to sleep if there are no runnable threads.
+ * 
+ * Should be called on idle thread, not a thread just about to sleep,
+ * since otherwise we might be asleep when another CPU resumes the
+ * thread above us on the stack.  Actually, this can happen even if we
+ * don't go to sleep.
  */
 void
 ThreadDispatcher::dispatch()
 {
     Thread *newThreadp;
     while(1) {
-        _runQueueLock.take();
-        newThreadp = _runQueue.pop();
+        _runQueue._queueLock.take();
+        newThreadp = _runQueue._queue.pop();
         if (!newThreadp) {
             _sleeping = 1;
-            _runQueueLock.release();
+            _runQueue._queueLock.release();
             pthread_mutex_lock(&_runMutex);
             while(_sleeping) {
                 pthread_cond_wait(&_runCV, &_runMutex);
@@ -121,7 +145,7 @@ ThreadDispatcher::dispatch()
             pthread_mutex_unlock(&_runMutex);
         }
         else{
-            _runQueueLock.release();
+            _runQueue._queueLock.release();
             _currentThreadp = newThreadp;
             newThreadp->_currentDispatcherp = this;
             newThreadp->resume();   /* doesn't return */
@@ -129,13 +153,13 @@ ThreadDispatcher::dispatch()
     }
 }
 
-/* When a thread needs to block for some condition, the paradigm is that
- * it will have some SpinLock held holding invariant some condition,
- * such as the state of a mutex.  As soon as that spin lock is
- * released, another processor might see this thread in a lock queue,
- * and queue it to a dispatcher.  We need to ensure that the thread's
- * state is properly stored before allowing a wakeup operation
- * (queueThread) to begin.
+/* External.  When a thread needs to block for some condition, the
+ * paradigm is that it will have some SpinLock held holding invariant
+ * some condition, such as the state of a mutex.  As soon as that spin
+ * lock is released, another processor might see this thread in a lock
+ * queue, and queue it to a dispatcher.  We need to ensure that the
+ * thread's state is properly stored before allowing a wakeup
+ * operation (queueThread) to begin.
  *
  * In the context of this function, this means we must finish the
  * getcontext call and the clearing of _goingToSleep before allowing
@@ -152,7 +176,7 @@ ThreadDispatcher::sleep(Thread *threadp, SpinLock *lockp)
     assert(threadp == _currentThreadp);
     _currentThreadp = NULL;
     threadp->_goingToSleep = 1;
-    xgetcontext(&threadp->_ctx);
+    GETCONTEXT(&threadp->_ctx);
     if (threadp->_goingToSleep) {
         threadp->_goingToSleep = 0;
 
@@ -165,7 +189,7 @@ ThreadDispatcher::sleep(Thread *threadp, SpinLock *lockp)
          * next thread from the run queue.
          */
         _idle._userLockToReleasep = lockp;
-        xsetcontext(&_idle._ctx);
+        SETCONTEXT(&_idle._ctx);
 
         printf("!Error: somehow back from sleep's setcontext disp=%p\n", this);
     }
@@ -175,23 +199,25 @@ ThreadDispatcher::sleep(Thread *threadp, SpinLock *lockp)
     }
 }
 
+/* Internal; call to the dispatcher to queue a task to this dispatcher */
 void
 ThreadDispatcher::queueThread(Thread *threadp)
 {
-    _runQueueLock.take();
-    _runQueue.append(threadp);
+    _runQueue._queueLock.take();
+    _runQueue._queue.append(threadp);
     if (_sleeping) {
-        _runQueueLock.release();
+        _runQueue._queueLock.release();
         pthread_mutex_lock(&_runMutex);
         _sleeping = 0;
         pthread_mutex_unlock(&_runMutex);
         pthread_cond_broadcast(&_runCV);
     }
     else {
-        _runQueueLock.release();
+        _runQueue._queueLock.release();
     }
 }
 
+/* Internal -- first function called in a dispatcher's creation */
 /* static */ void *
 ThreadDispatcher::dispatcherTop(void *ctx)
 {
@@ -201,7 +227,7 @@ ThreadDispatcher::dispatcherTop(void *ctx)
     printf("Error: dispatcher %p top level return!!\n", disp);
 }
 
-/* the setup function creates a set of dispatchers */
+/* External; utility function to create a number of dispatchers */
 /* static */ void
 ThreadDispatcher::setup(uint16_t ndispatchers)
 {
@@ -221,6 +247,7 @@ ThreadDispatcher::setup(uint16_t ndispatchers)
     }
 }
 
+/* Internal constructor to create a new dispatcher */
 ThreadDispatcher::ThreadDispatcher() {
     Thread::_globalThreadLock.take();
     _allDispatchers[_dispatcherCount++] = this;

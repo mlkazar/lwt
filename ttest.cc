@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <sys/time.h>
 #include <stdio.h>
+#include <assert.h>
 
 #include "thread.h"
 
@@ -94,6 +95,7 @@ PongThread::start() {
         _lockp->take();
         _pingThreadp->queue();
         Thread::sleep(_lockp);
+        assert(this == Thread::getCurrent());
     }
 }
 

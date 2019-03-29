@@ -29,7 +29,7 @@ class ThreadDispatcher;
 /* a simple spin lock, available to external callers */
 class SpinLock {
  public:
-    std::atomic<long> _owningPid;
+    std::atomic<int> _owningPid;
 
     SpinLock() {
         _owningPid = 0;
@@ -37,8 +37,8 @@ class SpinLock {
 
     /* grab the lock */
     void take() {
-        long exchangeValue;
-        long newValue;
+        int exchangeValue;
+        int newValue;
 
         while(1) {
             exchangeValue = 0;
@@ -57,8 +57,8 @@ class SpinLock {
 
     /* return true if we get the lock, but never block */
     int tryLock() {
-        long exchangeValue;
-        long newValue;
+        int exchangeValue;
+        int newValue;
         exchangeValue = 0;
         newValue = 1;
         if (_owningPid.compare_exchange_weak(exchangeValue, 1, std::memory_order_acquire)) {
@@ -182,6 +182,8 @@ class Thread {
     /* queued to start a task that's been put to sleep, or freshly constructed */
     void queue();
 
+    static Thread *getCurrent();
+
  private:
     /* internal function used in constructing a task */
     void init();
@@ -222,8 +224,7 @@ class ThreadDispatcherQueue {
     SpinLock _queueLock;
 };
 
-class ThreadDispatcher
-{
+class ThreadDispatcher {
     friend class Thread;
     friend class ThreadDispatcherQueue;
 
