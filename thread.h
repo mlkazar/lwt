@@ -8,6 +8,7 @@
 #include <atomic>
 
 #include "dqueue.h"
+#include "osp.h"
 
 /* does a pointer fit in an integer? */
 #if defined(__arm__)

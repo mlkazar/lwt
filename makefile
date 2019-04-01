@@ -1,6 +1,6 @@
 all: libthread.a ttest mtest
 
-INCLS=thread.h threadmutex.h
+INCLS=thread.h threadmutex.h osp.h
 
 clean:
 	-rm -f ttest mtest *.o *.a *temp.s
@@ -16,11 +16,14 @@ setcontext.o: setcontext.s
 	as -o setcontext.o setcontext-temp.s
 	-rm setcontext-temp.s
 
+osp.o: osp.cc $(INCLS)
+	g++ -c -g osp.cc -pthread
+
 threadmutex.o: threadmutex.cc $(INCLS)
 	g++ -c -g threadmutex.cc -pthread
 
-libthread.a: thread.o getcontext.o setcontext.o threadmutex.o
-	ar cr libthread.a thread.o getcontext.o setcontext.o threadmutex.o
+libthread.a: thread.o getcontext.o setcontext.o threadmutex.o osp.o
+	ar cr libthread.a thread.o getcontext.o setcontext.o threadmutex.o osp.o
 	ranlib libthread.a
 
 thread.o: thread.cc $(INCLS)

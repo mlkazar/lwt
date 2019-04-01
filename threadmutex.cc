@@ -6,6 +6,7 @@
 void
 ThreadMutex::take() {
     Thread *mep;
+    long long blockedTime;
 
     mep = Thread::getCurrent();
     _lock.take();
@@ -17,9 +18,11 @@ ThreadMutex::take() {
      */
     assert(_ownerp != mep);
     while(_ownerp != NULL) {
+        blockedTime = osp_getUs();
         _waiting.append(mep);
         mep->sleep(&_lock);
         _lock.take();
+        _waitUs += osp_getUs() - blockedTime;
     }
     _ownerp = mep;
     _lock.release();

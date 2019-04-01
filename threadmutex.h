@@ -44,6 +44,7 @@ class ThreadMutex {
     SpinLock _lock;
     dqueue<Thread> _waiting;
     Thread *_ownerp;
+    long long _waitUs;
 
     /* the releaseNL call is made while holding _lock, and releases the mutex, and finally
      * also releases the internal spin lock.  So, this call is just like release except
@@ -52,11 +53,21 @@ class ThreadMutex {
     void releaseAndSleep(Thread *threadp);
 
  public:
+
+    ThreadMutex() {
+        _ownerp = NULL;
+        _waitUs = 0;
+    }
+    
     void take();
 
     int tryLock();
 
     void release();
+
+    long long getWaitUs() {
+        return _waitUs;
+    }
 };
 
 #endif /* __THREAD_MUTEX_H_ENV__ */

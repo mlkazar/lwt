@@ -8,13 +8,6 @@
 #include "thread.h"
 #include "threadmutex.h"
 
-long long getus()
-{
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return tv.tv_sec*1000000 + tv.tv_usec;
-}
-
 class PingThread;
 class PongThread;
 class PingPong;
@@ -96,15 +89,16 @@ PingThread::start() {
     int tval;
 
     printf("ping starts\n");
-    startUs = getus();
+    startUs = osp_getUs();
     while(1) {
         /* supply data into the buffers */
         _pp->_mutex.take();
 
         /* count how many spins */
         if (main_counter++ > main_maxCount) {
-            printf("%d thread round trips, %d ns each\n",
-                   main_maxCount, (getus() - startUs) * 1000 / main_maxCount);
+            printf("%d thread round trips, %lld ns each\n",
+                   main_maxCount, (osp_getUs() - startUs) * 1000 / main_maxCount);
+            printf("%lld microseconds lock wait total\n", _pp->_mutex.getWaitUs());
             printf("Done!\n");
             _pp->_mutex.release();
             return;
@@ -185,16 +179,26 @@ main(int argc, char **argv)
 {
     long i;
     PingPong *pingPongp;
+    long long us;
     
     if (argc<2) {
         printf("usage: ttest <count>\n");
         return -1;
     }
     
+    us = osp_getUs();
+    printf("us1=%d\n", us);
+
     main_maxCount = atoi(argv[1]);
+
+    us = osp_getUs();
+    printf("us2=%d\n", us);
 
     /* start the dispatcher */
     ThreadDispatcher::setup(/* # of pthreads */ 2);
+
+    us = osp_getUs();
+    printf("us3=%d\n", us);
 
     /* start thread on a dispatcher */
     for(i=0; i<8; i++) {

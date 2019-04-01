@@ -1,7 +1,5 @@
 Locks (spin and regular)
 
-  record caller?
-
   deadlock detector on sleep?
 
   time spent sleeping,
