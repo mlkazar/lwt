@@ -22,11 +22,19 @@ class ThreadCond {
         _mutexp = NULL;
     }
 
+    ThreadCond(ThreadMutex *mutexp) {
+        _mutexp = mutexp;
+    }
+
     void wait(ThreadMutex *mutexp);
 
     void signal();
 
     void broadcast();
+
+    void setMutex(ThreadMutex *mutexp) {
+        _mutexp = mutexp;
+    }
 };
 
 class ThreadMutex {
@@ -41,7 +49,7 @@ class ThreadMutex {
      * also releases the internal spin lock.  So, this call is just like release except
      * the spin lock is held on entry, but left released on exit.
      */
-    void releaseNL(Thread *threadp);
+    void releaseAndSleep(Thread *threadp);
 
  public:
     void take();

@@ -55,11 +55,21 @@ ThreadMutex::tryLock() {
 void
 ThreadMutex::release() {
     Thread *mep;
+    Thread *nextp;
 
     mep = Thread::getCurrent();
 
     _lock.take();
-    releaseNL(mep);     
+    
+    assert(_ownerp == mep);
+    _ownerp = NULL;
+
+    nextp = _waiting.pop();
+    _lock.release();
+
+    /* and now queue the task we've found in the waiting queue */
+    if (nextp)
+        nextp->queue();
 }
 
 /* Internal; release the lock owned by mep.  The mutex's spin lock
@@ -68,16 +78,18 @@ ThreadMutex::release() {
  * conditional variable code.
  */
 void
-ThreadMutex::releaseNL(Thread *mep) {
+ThreadMutex::releaseAndSleep(Thread *mep) {
     Thread *nextp;
     assert(_ownerp == mep);
+
+    /* do the basics of the mutex release */
     _ownerp = NULL;
-
     nextp = _waiting.pop();
-    _lock.release();
-
-    /* and now queue the task we've found in the waiting queue */
-    nextp->queue();
+    if (nextp)
+        nextp->queue();
+    
+    /* and go to sleep atomically */
+    mep->sleep(&_lock);
 }
 
 /*****************ThreadCond*****************/
@@ -102,7 +114,11 @@ ThreadCond::wait(ThreadMutex *mutexp)
     /* queue our task for the CV */
     _waiting.append(mep);
 
-    _mutexp->releaseNL(mep);
+    /* and block, releasing the associated mutex */
+    _mutexp->releaseAndSleep(mep);
+
+    /* and reobtain it on the way back out */
+    _mutexp->take();
 }
 
 /* wakeup a single waiting thread */

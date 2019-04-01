@@ -51,9 +51,13 @@ public:
         int i;
         _pingTotal = 0;
         _pongTotal = 0;
+
         for(i=0; i<_maxBuffers; i++) {
             _buffers[i] = 0;
         }
+
+        _needSpaceCV.setMutex(&_mutex);
+        _needDataCV.setMutex(&_mutex);
     }
 
     void init();
@@ -102,6 +106,7 @@ PingThread::start() {
             printf("%d thread round trips, %d ns each\n",
                    main_maxCount, (getus() - startUs) * 1000 / main_maxCount);
             printf("Done!\n");
+            _pp->_mutex.release();
             return;
         }
 
@@ -109,6 +114,11 @@ PingThread::start() {
         for(i=0; i<PingPong::_maxBuffers; i++) {
             if (_pp->_buffers[i] == 0) {
                 tval = random() & 0xF;
+                /* test will fail if we fill all buffers with 0s, since
+                 * draining thread won't wake us.
+                 */
+                if (tval == 0)
+                    tval++;
                 _pp->_buffers[i] = tval;
                 _pp->_pingTotal += tval;
 
@@ -165,8 +175,9 @@ PingPong::init()
     _pingThreadp->setParms(this);
     _pongThreadp->setParms(this);
     
-    /* now start the ping thread */
+    /* now start the ping and pong threads */
     _pingThreadp->queue();
+    _pongThreadp->queue();
 };
 
 int
@@ -186,7 +197,7 @@ main(int argc, char **argv)
     ThreadDispatcher::setup(/* # of pthreads */ 2);
 
     /* start thread on a dispatcher */
-    for(i=0;i<8;i++) {
+    for(i=0; i<8; i++) {
         pingPongp = new PingPong();
         pingPongp->init();
     }
@@ -196,3 +207,4 @@ main(int argc, char **argv)
     }
     return 0;
 }
+
