@@ -1,6 +1,7 @@
 #include "thread.h"
 #include "threadmutex.h"
 #include <assert.h>
+#include <stdio.h>
 
 /*****************ThreadMutex*****************/
 void
@@ -18,9 +19,11 @@ ThreadMutex::take() {
      */
     assert(_ownerp != mep);
     while(_ownerp != NULL) {
+        mep->_blockingMutexp = this;
         blockedTime = osp_getUs();
         _waiting.append(mep);
         mep->sleep(&_lock);
+        mep->_blockingMutexp = NULL;
         _lock.take();
         _waitUs += osp_getUs() - blockedTime;
     }
@@ -88,11 +91,90 @@ ThreadMutex::releaseAndSleep(Thread *mep) {
     /* do the basics of the mutex release */
     _ownerp = NULL;
     nextp = _waiting.pop();
+
     if (nextp)
         nextp->queue();
     
     /* and go to sleep atomically */
     mep->sleep(&_lock);
+}
+
+/*****************TheadMutexDetect*****************/
+
+/* check for deadlocks; as currently written, this code will crash if
+ * threads are deleted while we're checking, so we'll need a locking
+ * philosophy.
+ *
+ * We're searching for lock cycles, but it is possible that some other
+ * held mutexes are not part of a cycle.
+ */
+int
+ThreadMutexDetect::checkForDeadlocks()
+{
+    Thread *threadp;
+    ThreadEntry *ep;
+    int sweepIx = 0;
+    int didAny;
+
+    for( ep = Thread::_allThreads.head(); ep; ep=ep->_dqNextp) {
+        threadp = ep->_threadp;
+        threadp->_marked = 0;
+    }
+
+    didAny = 0;
+    for( ep = Thread::_allThreads.head(); ep; ep=ep->_dqNextp) {
+        threadp = ep->_threadp;
+        sweepIx++;
+        reset();
+        didAny = sweepFrom(threadp, sweepIx);
+        if (didAny)
+            break;
+    }
+
+    return didAny;
+}
+
+int
+ThreadMutexDetect::sweepFrom(Thread *threadp, int sweepIx)
+{
+    ThreadMutex *mutexp;
+    int rcode;
+
+    push(threadp);
+
+    if (threadp->_marked == sweepIx) {
+        displayTrace();
+        return 1;
+    }
+
+    threadp->_marked = sweepIx;
+
+    mutexp = threadp->_blockingMutexp;
+    if (mutexp == NULL) {
+        return 0;
+    }
+
+    if (mutexp->_ownerp) {
+        rcode = sweepFrom(mutexp->_ownerp, sweepIx);
+        return rcode;
+    }
+
+    /* unlocked mutex, we're done */
+    return 0;
+}
+
+void
+ThreadMutexDetect::displayTrace()
+{
+    uint32_t i;
+    Thread *threadp;
+
+    printf("Deadlock detected:\n");
+    for(i=0;i<_currentIx;i++) {
+        threadp = _stack[i];
+        printf("Deadlock thread %p waits for mutex=%p owned by thread %p\n",
+               threadp, threadp->_blockingMutexp, threadp->_blockingMutexp->_ownerp);
+    }
 }
 
 /*****************ThreadCond*****************/

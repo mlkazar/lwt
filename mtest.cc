@@ -4,6 +4,7 @@
 #include <sys/time.h>
 #include <stdio.h>
 #include <assert.h>
+#include <string.h>
 
 #include "thread.h"
 #include "threadmutex.h"
@@ -11,9 +12,125 @@
 class PingThread;
 class PongThread;
 class PingPong;
+class Deadlock;
 
 long main_counter;
 long main_maxCount;
+Deadlock *main_deadlockp;
+
+class Deadlock {
+public:
+
+    class ABThread;
+    class BAThread;
+
+    static const int _maxThreads = 4;
+
+    ThreadMutex _mutexA;
+    ThreadMutex _mutexB;
+    long long _bigSpins;
+
+    Thread *_absp[_maxThreads];
+    Thread *_basp[_maxThreads];
+
+    static void delayRand(long maxSpins) {
+        long i;
+        long spins;
+        static long total = 0;
+
+        spins = random() % maxSpins;
+        for(i=0;i<spins;i++) 
+            total++;
+    };
+
+    class ABThread : public Thread {
+    public:
+        Deadlock *_deadlockp;
+        
+        ABThread(Deadlock *deadlockp) {
+            _deadlockp = deadlockp;
+        }
+
+        void start();
+    };
+
+    class BAThread : public Thread {
+    public:
+        Deadlock *_deadlockp;
+        
+        BAThread(Deadlock *deadlockp) {
+            _deadlockp = deadlockp;
+        }
+
+        void start();
+    };
+
+
+    Deadlock() {
+        printf("Deadlock structure at %p\n", this);
+        int i;
+        if ( main_maxCount > _maxThreads)
+            main_maxCount = _maxThreads;
+
+        _bigSpins = 0;
+
+        for(i=0; i<main_maxCount; i++) {
+            _absp[i] = new ABThread(this);
+            _basp[i] = new BAThread(this);
+        }
+    };
+
+    void start() {
+        int i;
+
+        for(i=0;i<main_maxCount;i++) {
+            _absp[i]->queue();
+            _basp[i]->queue();
+        }
+    };
+
+    long long getSpins() {
+        return _bigSpins;
+    };
+    
+};
+
+void
+Deadlock::BAThread::start() 
+{
+    int spins;
+    int i;
+            
+    while(1) {
+        _deadlockp->_mutexB.take();
+        _deadlockp->_mutexA.take();
+        delayRand(1000000);
+        _deadlockp->_mutexA.release();
+        _deadlockp->_mutexB.release();
+        
+        delayRand(10000);
+
+        _deadlockp->_bigSpins++;
+    }
+}
+
+void
+Deadlock::ABThread::start() 
+{
+    int spins;
+    int i;
+            
+    while(1) {
+        _deadlockp->_mutexA.take();
+        _deadlockp->_mutexB.take();
+        delayRand(1000000);
+        _deadlockp->_mutexB.release();
+        _deadlockp->_mutexA.release();
+        delayRand(10000);
+
+        _deadlockp->_bigSpins++;
+    }
+}
 
 /* this class is used to test condition variables and mutexes.  There
  * is a small buffer of integers.  Ping looks for zero entries in the
@@ -174,40 +291,61 @@ PingPong::init()
     _pongThreadp->queue();
 };
 
-int
-main(int argc, char **argv)
+void
+deadlock()
+{
+    main_deadlockp = new Deadlock();
+    main_deadlockp->start();
+}
+
+void
+basic()
 {
     long i;
     PingPong *pingPongp;
-    long long us;
-    
-    if (argc<2) {
-        printf("usage: ttest <count>\n");
-        return -1;
-    }
-    
-    us = osp_getUs();
-    printf("us1=%d\n", us);
-
-    main_maxCount = atoi(argv[1]);
-
-    us = osp_getUs();
-    printf("us2=%d\n", us);
-
-    /* start the dispatcher */
-    ThreadDispatcher::setup(/* # of pthreads */ 2);
-
-    us = osp_getUs();
-    printf("us3=%d\n", us);
 
     /* start thread on a dispatcher */
     for(i=0; i<8; i++) {
         pingPongp = new PingPong();
         pingPongp->init();
     }
+}
+
+int
+main(int argc, char **argv)
+{
+    long long us;
+    int code;
+    
+    if (argc<2) {
+        printf("usage: ttest <testname> <count>\n");
+        printf("usage: testname = {basic,deadlock}\n");
+        return -1;
+    }
+    
+    main_maxCount = atoi(argv[2]);
+
+    /* start the dispatcher */
+    ThreadDispatcher::setup(/* # of pthreads */ 2);
+
+    if (strcmp(argv[1], "basic") == 0)
+        basic();
+    else if (strcmp(argv[1], "deadlock") == 0) {
+        deadlock();
+    }
+    else {
+        printf("unknown test '%s'\n", argv[1]);
+        return -1;
+    }
 
     while(1) {
+        ThreadMutexDetect detect;
         sleep(2);
+        code = detect.checkForDeadlocks();
+        if (code)
+            printf("main: deadlocks found\n\n");
+        else
+            printf("main: done with deadlock check; none found\n");
     }
     return 0;
 }

@@ -26,6 +26,7 @@
 class Thread;
 class ThreadEntry;
 class ThreadDispatcher;
+class ThreadMutex;
 
 /* a simple spin lock, available to external callers */
 class SpinLock {
@@ -90,6 +91,8 @@ class ThreadEntry {
  */
 class Thread {
     friend class ThreadDispatcher;
+    friend class ThreadMutex;
+    friend class ThreadMutexDetect;
 
  public:
     typedef void (InitProc) (void *contextp, Thread *threadp);
@@ -119,6 +122,11 @@ class Thread {
      * so that gdb can read the thread and setup a copy of the registers for 
      * debugging.
      */
+
+    /* the mutex that we're blocked on, or null if not blocked on a mutex */
+    ThreadMutex *_blockingMutexp;
+
+    uint32_t _marked;
 
     /* set to the current dispatcher when a thread is loaded onto a processor */
     ThreadDispatcher *_currentDispatcherp; /* current dispatcher for running thread */
@@ -151,10 +159,13 @@ class Thread {
  public:
     Thread() {
         _goingToSleep = 0;
+        _marked = 0;
         _globalThreadLock.take();
+        _allEntry._threadp = this;
         _allThreads.append(&_allEntry);
         _globalThreadLock.release();
         _currentDispatcherp = NULL;
+        _blockingMutexp = NULL;
 
         init();
     }

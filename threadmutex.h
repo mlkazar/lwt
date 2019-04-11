@@ -5,6 +5,7 @@
 
 class ThreadCond;
 class ThreadMutex;
+class ThreadMutexDetect;
 
 /* condition variable.  The internals of all condition variables are protected by the
  * spin lock within the corresponding mutex.
@@ -39,6 +40,7 @@ class ThreadCond {
 
 class ThreadMutex {
     friend class ThreadCond;
+    friend class ThreadMutexDetect;
 
  private:
     SpinLock _lock;
@@ -68,7 +70,36 @@ class ThreadMutex {
     long long getWaitUs() {
         return _waitUs;
     }
+
+    static void checkForDeadlocks();
+};
+
+class ThreadMutexDetect
+{
+ public:
+    static const uint32_t _maxCycleDepth = 1024;
+    uint32_t _currentIx;
+    Thread *_stack[_maxCycleDepth];
+    
+    ThreadMutexDetect() {
+        _currentIx = 0;
+    }
+
+    void push(Thread *threadp) {
+        if (_currentIx >= _maxCycleDepth)
+            return;
+        _stack[_currentIx++] = threadp;
+    }
+
+    void reset() {
+        _currentIx = 0;
+    }
+
+    void displayTrace();
+
+    int sweepFrom(Thread *threadp, int sweepIx);
+    
+    int checkForDeadlocks();
 };
 
 #endif /* __THREAD_MUTEX_H_ENV__ */
-

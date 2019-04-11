@@ -2,9 +2,11 @@ Locks (spin and regular)
 
   deadlock detector on sleep?
 
-  time spent sleeping,
+  * time spent sleeping,
 
-  abandon lock attempt after N microseconds
+  abandon cond wait after N microseconds
+
+Join
 
 Future<x> to create a future thread.
 
