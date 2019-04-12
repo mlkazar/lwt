@@ -139,7 +139,9 @@ ThreadDispatcher::dispatch()
             _sleeping = 1;
             _runQueue._queueLock.release();
             pthread_mutex_lock(&_runMutex);
-            while(_sleeping) {
+            while(_sleeping || _pauseRequests) {
+                if (_pauseRequests)
+                    _paused = 1;
                 pthread_cond_wait(&_runCV, &_runMutex);
             }
             pthread_mutex_unlock(&_runMutex);
@@ -256,7 +258,96 @@ ThreadDispatcher::ThreadDispatcher() {
     _sleeping = 0;
     _currentThreadp = NULL;
     _idle._disp = this;
+    _pauseRequests = 0;
+    _paused = 0;
     pthread_mutex_init(&_runMutex, NULL);
     pthread_cond_init(&_runCV, NULL);
+    pthread_cond_init(&_pauseCV, NULL);
     pthread_once(&_once, &ThreadDispatcher::globalInit);
+}
+
+/* pause dispatching for a dispatcher; when the dispatcher is about to
+ * go idle, the dispatcher checks for _pauseRequests, and waits for
+ * the count to go to zero.  It also wakes up the pauseCV after
+ * setting _paused.
+ */
+void
+ThreadDispatcher::pauseDispatching()
+{
+    pthread_mutex_lock(&_runMutex);
+    _pauseRequests++;
+    pthread_mutex_unlock(&_runMutex);
+}
+
+void
+ThreadDispatcher::resumeDispatching()
+{
+    int doWakeup = 0;
+    pthread_mutex_lock(&_runMutex);
+    assert(_pauseRequests > 0);
+    _pauseRequests--;
+    if (_pauseRequests == 0) {
+        doWakeup = 1;
+        _paused = 0;
+    }
+    pthread_mutex_unlock(&_runMutex);
+
+    /* and make sure that the dispatcher knows that it is time to run again */
+    if (doWakeup)
+        pthread_cond_broadcast(&_runCV);
+}
+
+/* static */ void
+ThreadDispatcher::pauseAllDispatching()
+{
+    uint32_t i;
+    ThreadDispatcher *disp;
+
+    for(i=0; i<_maxDispatchers; i++) {
+        disp = _allDispatchers[i];
+        if (!disp)
+            break;
+        disp->pauseDispatching();
+    }
+}
+
+/* return true if all dispatchers have stopped; if they're stopped and we've already
+ * called pauseAllDispatching, then they'll stay paused.
+ */
+/* static */ int
+ThreadDispatcher::pausedAllDispatching()
+{
+    uint32_t i;
+    ThreadDispatcher *disp;
+    int rcode;
+    int isSleeping;
+
+    rcode = 1;
+
+    for(i=0; i<_maxDispatchers; i++) {
+        disp = _allDispatchers[i];
+        if (!disp)
+            break;
+        isSleeping = disp->isSleeping();
+        if (!isSleeping) {
+            rcode = 0;
+            break;
+        }
+    }
+
+    return rcode;
+}
+
+/* static */ void
+ThreadDispatcher::resumeAllDispatching()
+{
+    uint32_t i;
+    ThreadDispatcher *disp;
+
+    for(i=0; i<_maxDispatchers; i++) {
+        disp = _allDispatchers[i];
+        if (!disp)
+            break;
+        disp->resumeDispatching();
+    }
 }

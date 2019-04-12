@@ -253,6 +253,17 @@ class ThreadDispatcher {
     /* queue of pending locks */
     ThreadDispatcherQueue _runQueue;
 
+    /* manage the pause system; you can call dispatcher pause and then
+     * perform operations that require all scheduling to stop, like deadlock
+     * detection.  The call resume.  More than one pthread can do this at once,
+     * since _pauseRequests is an integer.  This stuff is all protected by the
+     * runMutex below.
+     */
+    uint32_t _pauseRequests;
+    uint8_t _paused;
+    pthread_cond_t _pauseCV;
+
+
     Thread *_currentThreadp;
     int _sleeping;
     pthread_cond_t _runCV;
@@ -286,7 +297,27 @@ class ThreadDispatcher {
     /* called to create a bunch of dispatchers and their pthreads */
     static void setup(uint16_t ndispatchers);
 
+    int isSleeping() {
+        int isSleeping;
+
+        pthread_mutex_lock(&_runMutex);
+        isSleeping = _sleeping;
+        pthread_mutex_unlock(&_runMutex);
+
+        return isSleeping;
+    }
+
     ThreadDispatcher();
+
+    void pauseDispatching();
+
+    void resumeDispatching();
+
+    static void pauseAllDispatching();
+
+    static void resumeAllDispatching();
+
+    static int pausedAllDispatching();
 };
 
 #endif /* __THREAD_H_ENV__ */ 

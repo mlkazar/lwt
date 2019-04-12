@@ -114,26 +114,41 @@ ThreadMutexDetect::checkForDeadlocks()
     Thread *threadp;
     ThreadEntry *ep;
     int sweepIx = 0;
-    int didAny;
+    int didAny = 0;
+    int allStopped;
 
-    for( ep = Thread::_allThreads.head(); ep; ep=ep->_dqNextp) {
-        threadp = ep->_threadp;
-        threadp->_marked = 0;
+    ThreadDispatcher::pauseAllDispatching();
+
+    allStopped = ThreadDispatcher::pausedAllDispatching();
+
+    if (allStopped) {
+        for( ep = Thread::_allThreads.head(); ep; ep=ep->_dqNextp) {
+            threadp = ep->_threadp;
+            threadp->_marked = 0;
+        }
+
+        didAny = 0;
+        for( ep = Thread::_allThreads.head(); ep; ep=ep->_dqNextp) {
+            threadp = ep->_threadp;
+            sweepIx++;
+            reset();
+            didAny = sweepFrom(threadp, sweepIx);
+            if (didAny)
+                break;
+        }
+    }
+    else {
+        didAny = 0;
     }
 
-    didAny = 0;
-    for( ep = Thread::_allThreads.head(); ep; ep=ep->_dqNextp) {
-        threadp = ep->_threadp;
-        sweepIx++;
-        reset();
-        didAny = sweepFrom(threadp, sweepIx);
-        if (didAny)
-            break;
-    }
+    ThreadDispatcher::resumeAllDispatching();
 
     return didAny;
 }
 
+/* internal function to sweep a thread, tagging it with sweepIx to see if we've 
+ * already visited it.
+ */
 int
 ThreadMutexDetect::sweepFrom(Thread *threadp, int sweepIx)
 {
@@ -163,6 +178,7 @@ ThreadMutexDetect::sweepFrom(Thread *threadp, int sweepIx)
     return 0;
 }
 
+/* internal function to display the thread trace when a deadlock has been detected */
 void
 ThreadMutexDetect::displayTrace()
 {
@@ -175,6 +191,31 @@ ThreadMutexDetect::displayTrace()
         printf("Deadlock thread %p waits for mutex=%p owned by thread %p\n",
                threadp, threadp->_blockingMutexp, threadp->_blockingMutexp->_ownerp);
     }
+}
+
+/* internal monitor thread */
+/* static */ void *
+ThreadMutexDetect::mutexMonitorTop(void *acxp)
+{
+    ThreadMutexDetect detect;
+    int code;
+
+    while(1) {
+        sleep(10);
+        code = detect.checkForDeadlocks();
+        if (code) {
+            printf("main: deadlocks found\n\n");
+            assert("deadlocked" == 0);
+        }
+    }
+}
+
+/* start a monitoring thread watching for deadlocks */
+/* static */ void
+ThreadMutexDetect::start()
+{
+    pthread_t junk;
+    pthread_create(&junk, NULL, mutexMonitorTop, NULL);
 }
 
 /*****************ThreadCond*****************/

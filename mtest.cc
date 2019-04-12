@@ -328,6 +328,9 @@ main(int argc, char **argv)
     /* start the dispatcher */
     ThreadDispatcher::setup(/* # of pthreads */ 2);
 
+    /* start monitoring for deadlocks */
+    ThreadMutexDetect::start();
+
     if (strcmp(argv[1], "basic") == 0)
         basic();
     else if (strcmp(argv[1], "deadlock") == 0) {
@@ -339,13 +342,7 @@ main(int argc, char **argv)
     }
 
     while(1) {
-        ThreadMutexDetect detect;
-        sleep(2);
-        code = detect.checkForDeadlocks();
-        if (code)
-            printf("main: deadlocks found\n\n");
-        else
-            printf("main: done with deadlock check; none found\n");
+        sleep(100);
     }
     return 0;
 }

@@ -74,8 +74,7 @@ class ThreadMutex {
     static void checkForDeadlocks();
 };
 
-class ThreadMutexDetect
-{
+class ThreadMutexDetect {
  public:
     static const uint32_t _maxCycleDepth = 1024;
     uint32_t _currentIx;
@@ -100,6 +99,10 @@ class ThreadMutexDetect
     int sweepFrom(Thread *threadp, int sweepIx);
     
     int checkForDeadlocks();
+
+    static void *mutexMonitorTop(void *cxp);
+
+    static void start();
 };
 
 #endif /* __THREAD_MUTEX_H_ENV__ */
