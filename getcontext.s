@@ -1,3 +1,4 @@
+#if defined(__arm__)
 	.syntax unified
 	.global xgetcontext
 
@@ -6,7 +7,6 @@
 	/* int getcontext (ucontext_t *ucp) */
 	
 xgetcontext: 
-#if defined(__arm__)
 	MCONTEXT_ARM_R4=48
 	MCONTEXT_ARM_SP=84
 	MCONTEXT_ARM_LR=88
@@ -37,4 +37,7 @@ xgetcontext:
 	
 	bx r14
 #elif defined(__x86_64__)
+	.global xgetcontext
+	.text
+xgetcontext:	
 #endif	

@@ -1,3 +1,4 @@
+#if defined(__arm__)
         .syntax unified
 	.global xsetcontext
 	.text
@@ -10,7 +11,6 @@
 	/* int setcontext (const ucontext_t *ucp) */
 	
 xsetcontext:
-#if defined(__arm__)
 	mov        r4, r0
 	
 	/* Loading r0-r3 makes makecontext easier.  */
@@ -20,4 +20,7 @@ xsetcontext:
 	add     r14, r14, #(MCONTEXT_ARM_LR - MCONTEXT_ARM_R0)
 	ldmia   r14, {r14, pc}
 #elif defined(__x86_64__)
+	.global xsetcontext
+	.text
+xsetcontext:	
 #endif

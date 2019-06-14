@@ -41,8 +41,8 @@ Thread::init()
 #else
     makecontext(&_ctx, (void (*)()) &ctxStart, 
                 2,
-                (int) ((long) this) & 0xFFFFFFFF,
-                (int)((long)this)>>32);
+                (int) (((long) this) & 0xFFFFFFFF),
+                (int)(((long)this)>>32));
 #endif
 }
 
@@ -145,9 +145,9 @@ Thread::resume()
 void
 Thread::queue()
 {
-    unsigned int ix;
+    unsigned long ix;
     
-    ix = (unsigned int) this;
+    ix = (unsigned long) this;
     ix = (ix % 127) % ThreadDispatcher::_dispatcherCount;
     ThreadDispatcher::_allDispatchers[ix]->queueThread(this);
 }
