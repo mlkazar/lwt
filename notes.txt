@@ -1,12 +1,14 @@
 Locks (spin and regular)
 
-  deadlock detector on sleep?
+  * deadlock detector on sleep?
 
   * time spent sleeping,
 
   abandon cond wait after N microseconds
 
-Join
+* Join
+
+*   and when a thread terminates by returning, we shouldn't kill the process
 
 Future<x> to create a future thread.
 

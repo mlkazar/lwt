@@ -84,6 +84,11 @@ class ThreadEntry {
     ThreadEntry *_dqNextp;
     ThreadEntry *_dqPrevp;
     Thread *_threadp;       /* back ptr */
+
+    ThreadEntry() {
+        _dqNextp = _dqPrevp = NULL;
+        _threadp = NULL;
+    }
 };
 
 /* one of these per user thread.  A thread can only exist in one spot in any collection
@@ -101,6 +106,7 @@ class Thread {
      * protects the _allThreads list, and that alone.
      */
     static dqueue<ThreadEntry> _allThreads;
+    static dqueue<ThreadEntry> _joinThreads;
     static SpinLock _globalThreadLock;
 
     /* for when thread is blocked, or when it is in a run queue, these pointers are
@@ -122,6 +128,9 @@ class Thread {
      * so that gdb can read the thread and setup a copy of the registers for 
      * debugging.
      */
+
+    /* list of threads waiting for join */
+    ThreadEntry _joinEntry;
 
     /* the mutex that we're blocked on, or null if not blocked on a mutex */
     ThreadMutex *_blockingMutexp;
@@ -148,6 +157,16 @@ class Thread {
      */
     int _goingToSleep;
 
+    /* flag set if exited thread should hang around until joined */
+    uint8_t _joinable;
+
+    /* non-null if _joiningThreadp called join on us, and we weren't ready; protected
+     * by globalThreadLock.
+     */
+    Thread *_joiningThreadp;
+    void *_exitValuep;
+    uint8_t _exited;
+
     /* Internal C function called by the first activation of a thread
      * by makecontext.  Note that its signature is defined by the C
      * library, and we may have to split a context pointer across two
@@ -166,15 +185,24 @@ class Thread {
         _globalThreadLock.release();
         _currentDispatcherp = NULL;
         _blockingMutexp = NULL;
+        _joinable = 0;
+        _joiningThreadp = 0;
+        _exitValuep = NULL;
+        _exited = 0;
 
         init();
+    }
+
+    /* set the flag */
+    void setJoinable() {
+        _joinable = 1;
     }
 
     /* this is the main entry point to a thread.  The definer of a thread specifies this
      * when creating a thread, and it will start here the first time the thread
      * is queued.
      */
-    virtual void start() = 0;
+    virtual void *start() = 0;
 
     /* this function is used by primitives to put a thread to sleep.
      * The idea is that if you have a task list protected by a spin
@@ -196,6 +224,10 @@ class Thread {
 
     static Thread *getCurrent();
 
+    void exit(void *exitCodep);
+
+    int32_t join(void **ptrpp);
+
  private:
     /* internal function used in constructing a task */
     void init();
@@ -211,7 +243,7 @@ class ThreadIdle : public Thread {
     SpinLock *_userLockToReleasep;
     ThreadDispatcher *_disp;
 
-    void start();
+    void *start();
 
     ThreadIdle() {
         _userLockToReleasep = NULL;

@@ -31,7 +31,7 @@ class PingThread : public Thread
 public:
     SpinLock *_lockp;
     PongThread *_pongThreadp;
-    void start();
+    void *start();
 
     void setParms(PongThread *pongThreadp, SpinLock *lockp) {
         _pongThreadp = pongThreadp;
@@ -44,7 +44,7 @@ class PongThread : public Thread
 public:
     SpinLock *_lockp;
     PingThread *_pingThreadp;
-    void start();
+    void *start();
 
     void setParms(PingThread *pingThreadp, SpinLock *lockp) {
         _pingThreadp = pingThreadp;
@@ -69,7 +69,7 @@ public:
     };
 };
 
-void
+void *
 PingThread::start() {
     long long startUs;
 
@@ -81,14 +81,14 @@ PingThread::start() {
             printf("%d thread round trips, %d ns each\n",
                    main_maxCount, (getus() - startUs) * 1000 / main_maxCount);
             printf("Done!\n");
-            return;
+            return NULL;
         }
         _pongThreadp->queue();
         Thread::sleep(_lockp);
     }
 }
 
-void
+void *
 PongThread::start() {
     printf("pong starts\n");
     while(1) {

@@ -101,9 +101,8 @@ ThreadMutex::releaseAndSleep(Thread *mep) {
 
 /*****************TheadMutexDetect*****************/
 
-/* check for deadlocks; as currently written, this code will crash if
- * threads are deleted while we're checking, so we'll need a locking
- * philosophy.
+/* check for deadlocks; note that we try to stop all dispatchers so
+ * that mutexes aren't changed while we're checking for deadlocks.
  *
  * We're searching for lock cycles, but it is possible that some other
  * held mutexes are not part of a cycle.

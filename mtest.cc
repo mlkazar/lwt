@@ -13,10 +13,124 @@ class PingThread;
 class PongThread;
 class PingPong;
 class Deadlock;
+class Join;
+class JoinA;
+class JoinB;
 
 long main_counter;
 long main_maxCount;
 Deadlock *main_deadlockp;
+Join *main_joinp;
+
+void delayRand(long maxSpins) {
+    long i;
+    long spins;
+    static long total = 0;
+
+    spins = random() % maxSpins;
+    for(i=0;i<spins;i++) 
+        total++;
+};
+
+class Join {
+public:
+    static const uint32_t _maxThreads = 4;
+    JoinA *_joinAsp[_maxThreads];
+    JoinB *_joinBsp[_maxThreads];
+    uint32_t _count;
+
+    Join() {
+        _count = 0;
+    }
+
+    void start();
+};
+
+/* These threads are created by a JoinB task, and then this thread just waits
+ * a random amount of time, and then exits.
+ */
+class JoinA : public Thread {
+public:
+    Join *_joinp;
+    uint32_t _ix;
+
+    void setParams(Join *joinp, uint32_t ix) {
+        _ix = ix;
+        _joinp = joinp;
+    }
+
+    void *start();
+};
+
+/* These threads are created by the Join test, and they repeatedly create
+ * JoinA tasks, wait a random amount of time and then attempt to join their
+ * JoinA task.  They verify that the right exit value was returned.
+ *
+ * After the prescribed number of iterations, the JoinB task exits.
+ */
+class JoinB : public Thread {
+public:
+    Join *_joinp;
+    uint32_t _ix;
+    void setParams(Join *joinp, uint32_t ix) {
+        _ix = ix;
+        _joinp = joinp;
+    }
+
+    void *start();
+};
+
+void *
+JoinA::start()
+{
+    delayRand(100000);
+    Thread::exit(_joinp + _ix);
+}
+
+void
+Join::start() {
+    uint32_t i;
+    for(i=0;i<_maxThreads;i++) {
+        _joinAsp[i] = NULL;
+        _joinBsp[i] = new JoinB();
+        _joinBsp[i]->setParams(this, i);
+        _joinBsp[i]->queue();
+    }
+}
+
+void *
+JoinB::start()
+{
+    JoinA *jap;
+    void *joinValuep;
+
+    while(1) {
+        /* create a task who will delay a while and then exit */
+        jap = new JoinA();
+        _joinp->_joinAsp[_ix] = jap;
+        jap->setParams(_joinp, _ix);
+        jap->setJoinable();
+        jap->queue();
+
+        /* now delay a random amount, and do the join */
+        delayRand(100000);
+
+        jap->join(&joinValuep);
+        assert(joinValuep = _joinp + _ix);
+
+        _joinp->_count++;
+        if (_joinp->_count > main_maxCount) {
+            printf("Join test: ran %d iterations\n", _joinp->_count);
+            Thread::exit(NULL);
+        }
+
+        /* otherwise, we keep going.  Note that the join call above actually
+         * freed the JoinA thread, so we just recreate one at the top of
+         * the loop.
+         */
+        _joinp->_joinAsp[_ix] = NULL;
+    }
+}
 
 class Deadlock {
 public:
@@ -33,16 +147,6 @@ public:
     Thread *_absp[_maxThreads];
     Thread *_basp[_maxThreads];
 
-    static void delayRand(long maxSpins) {
-        long i;
-        long spins;
-        static long total = 0;
-
-        spins = random() % maxSpins;
-        for(i=0;i<spins;i++) 
-            total++;
-    };
-
     class ABThread : public Thread {
     public:
         Deadlock *_deadlockp;
@@ -51,7 +155,7 @@ public:
             _deadlockp = deadlockp;
         }
 
-        void start();
+        void *start();
     };
 
     class BAThread : public Thread {
@@ -62,7 +166,7 @@ public:
             _deadlockp = deadlockp;
         }
 
-        void start();
+        void *start();
     };
 
 
@@ -80,7 +184,7 @@ public:
         }
     };
 
-    void start() {
+    void *start() {
         int i;
 
         for(i=0;i<main_maxCount;i++) {
@@ -95,7 +199,7 @@ public:
     
 };
 
-void
+void *
 Deadlock::BAThread::start() 
 {
     int spins;
@@ -114,7 +218,7 @@ Deadlock::BAThread::start()
     }
 }
 
-void
+void *
 Deadlock::ABThread::start() 
 {
     int spins;
@@ -178,7 +282,7 @@ public:
     PingPong *_pp;
     PingThread *_pingThreadp;
 
-    void start();
+    void *start();
 
     void setParms(PingPong *pingPongp) {
         _pingThreadp = this;
@@ -191,7 +295,7 @@ public:
     PingPong *_pp;
     PongThread *_pongThreadp;
 
-    void start();
+    void *start();
 
     void setParms(PingPong *pingPongp) {
         _pongThreadp = this;
@@ -199,7 +303,7 @@ public:
     }
 };
 
-void
+void *
 PingThread::start() {
     long long startUs;
     int i;
@@ -218,7 +322,7 @@ PingThread::start() {
             printf("%lld microseconds lock wait total\n", _pp->_mutex.getWaitUs());
             printf("Done!\n");
             _pp->_mutex.release();
-            return;
+            return this;
         }
 
         /* look for space to supply */
@@ -248,7 +352,7 @@ PingThread::start() {
     }
 }
 
-void
+void *
 PongThread::start() {
     int i;
     int needWakeup;
@@ -311,6 +415,13 @@ basic()
     }
 }
 
+void
+join()
+{
+    main_joinp = new Join();
+    main_joinp->start();
+}
+
 int
 main(int argc, char **argv)
 {
@@ -318,7 +429,7 @@ main(int argc, char **argv)
     int code;
     
     if (argc<2) {
-        printf("usage: ttest <testname> <count>\n");
+        printf("usage: mtest <testname> <count>\n");
         printf("usage: testname = {basic,deadlock}\n");
         return -1;
     }
@@ -335,6 +446,9 @@ main(int argc, char **argv)
         basic();
     else if (strcmp(argv[1], "deadlock") == 0) {
         deadlock();
+    }
+    else if (strcmp(argv[1], "join") == 0) {
+        join();
     }
     else {
         printf("unknown test '%s'\n", argv[1]);
