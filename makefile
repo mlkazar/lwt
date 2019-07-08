@@ -1,6 +1,13 @@
 all: libthread.a ttest mtest
 
-INCLS=thread.h threadmutex.h osp.h
+DESTDIR=~/export
+
+INCLS=thread.h threadmutex.h osp.h dqueue.h
+
+install: all
+	-mkdir $(DESTDIR)/include $(DESTDIR)/lib $(DESTDIR)/bin
+	cp -up $(INCLS) $(DESTDIR)/include
+	cp -up libthread.a $(DESTDIR)/lib
 
 clean:
 	-rm -f ttest mtest *.o *.a *temp.s

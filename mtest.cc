@@ -317,8 +317,8 @@ PingThread::start() {
 
         /* count how many spins */
         if (main_counter++ > main_maxCount) {
-            printf("%d thread round trips, %lld ns each\n",
-                   main_maxCount, (osp_getUs() - startUs) * 1000 / main_maxCount);
+            printf("%d thread round trips, %ld ns each\n",
+                   (int) main_maxCount, (long) (osp_getUs() - startUs) * 1000 / main_maxCount);
             printf("%lld microseconds lock wait total\n", _pp->_mutex.getWaitUs());
             printf("Done!\n");
             _pp->_mutex.release();

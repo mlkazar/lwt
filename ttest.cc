@@ -78,8 +78,8 @@ PingThread::start() {
     while(1) {
         _lockp->take();
         if (main_counter++ > main_maxCount) {
-            printf("%d thread round trips, %d ns each\n",
-                   main_maxCount, (getus() - startUs) * 1000 / main_maxCount);
+            printf("%d thread round trips, %ld ns each\n",
+                   (int) main_maxCount, (long) (getus() - startUs) * 1000 / main_maxCount);
             printf("Done!\n");
             return NULL;
         }
@@ -119,8 +119,8 @@ main(int argc, char **argv)
         tlock.take();
         tlock.release();
     }
-    printf("%d lock/unlock pairs %d ns each\n",
-           main_maxCount, (getus() - startUs) * 1000 / main_maxCount);
+    printf("%d lock/unlock pairs %ld ns each\n",
+           (int) main_maxCount, (long) (getus() - startUs) * 1000 / main_maxCount);
 
     /* start the dispatcher */
     ThreadDispatcher::setup(/* # of pthreads */ 2);
