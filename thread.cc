@@ -50,7 +50,6 @@ Thread::init()
 /* static */ void
 Thread::ctxStart(unsigned int p1, unsigned int p2)
 {
-    void *rcodep;
     /* reconstruct thread pointer */
 #if THREAD_PTR_FITS_IN_INT
     unsigned long threadInt = (unsigned long) p1;
@@ -59,13 +58,16 @@ Thread::ctxStart(unsigned int p1, unsigned int p2)
 #endif
     Thread *threadp = (Thread *)threadInt;
 
-    rcodep = threadp->start();
-    printf("Thread %p returned from start code=%p\n", threadp, rcodep);
+    threadp->start();
+    printf("Thread %p returned from start\n", threadp);
 
-    threadp->exit(rcodep);
+    threadp->exit(NULL);
 }
 
-/* external: thread exits */
+/* external: thread exits; if joinable, this doesn't delete the
+ * thread; it is the responsibility of the joiner to delete the
+ * thread.
+ */
 void
 Thread::exit(void *valuep)
 {
@@ -85,26 +87,37 @@ Thread::exit(void *valuep)
             /* Someone already did a join for us, and is waiting for our exit.
              * We're going to release the global lock and then queue the
              * thread that did the join.
+             * 
+             * Note that we want the to ensure that the join doesn't
+             * complete until we're off this stack, since the thread
+             * that called join might delete the task (and thus our
+             * stack) as soon as the join returns.  So, we use the
+             * atomic sleep and release lock operation to make sure
+             * we're back on the idle thread's stack, and note that
+             * the join operation also obtains the globalThreadLock
+             * before proceeding.
              */
             joinThreadp = _joiningThreadp;
             _joiningThreadp = NULL;
-            _globalThreadLock.release();
             joinThreadp->queue();
-            sleep(NULL);
+            sleep(&_globalThreadLock);
             printf("!back from sleep after thread=%p termination\n", this);
             assert(0);
         }
         else {
-            /* joinable threads waiting for the join call */
+            /* joinable thread is waiting for the join call */
+            assert(!_inJoinThreads);
             _joinThreads.append(&_joinEntry);
+            _inJoinThreads = 1;
+            sleep(&_globalThreadLock);
         }
     }
     else {
         /* non-joinable threads just self destruct */
-        printf("thread exiting\n");
-        delete this;
+        printf("thread %p exiting\n", this);
+        _currentDispatcherp->_helper.queueItem(/* queue this guy */ NULL, /* delete */ this);
+        sleep(&_globalThreadLock);
     }
-    sleep(&_globalThreadLock);
 }
 
 /* external: join with another thread, waiting for it to exit, if it
@@ -112,6 +125,8 @@ Thread::exit(void *valuep)
  *
  * Note that this method is applied to the thread we want to join
  * with.  It blocks until the target thread exits.
+ *
+ * Applied to thread whose exit we're waiting for.
  */
 int32_t
 Thread::join(void **ptrpp)
@@ -121,14 +136,23 @@ Thread::join(void **ptrpp)
     if (!_exited) {
         _joiningThreadp = Thread::getCurrent();
         _joiningThreadp->sleep(&_globalThreadLock);
+
+        /* note that reobtaining this lock here also ensures that we don't
+         * return from join until the joined thread is executing in the idle
+         * thread's context, so our caller deletes the thread, it won't interfere
+         * with the joined thread's execution as it shuts down.
+         */
+        _globalThreadLock.take();
         assert(_exited);
+        _globalThreadLock.release();
     }
     else {
         _globalThreadLock.release();
     }
 
-    *ptrpp = _exitValuep;
-    delete this;
+    if (ptrpp)
+        *ptrpp = _exitValuep;
+
     return 0;
 }
 
@@ -165,6 +189,17 @@ Thread::getCurrent()
     ThreadDispatcher *disp = ((ThreadDispatcher *)
                               pthread_getspecific(ThreadDispatcher::_dispatcherKey));
     return disp->_currentThreadp;
+}
+
+Thread::~Thread()
+{
+    _globalThreadLock.take();
+    _allThreads.remove(&_allEntry);
+    if (_inJoinThreads) {
+        _inJoinThreads = 0;
+        _joinThreads.remove(&_joinEntry);
+    }
+    _globalThreadLock.release();
 }
 
 /*****************ThreadIdle*****************/
@@ -420,5 +455,57 @@ ThreadDispatcher::resumeAllDispatching()
         if (!disp)
             break;
         disp->resumeDispatching();
+    }
+}
+
+/*****************Once*****************/
+/* returns true if called the function, false if already called; note
+ * that the spinlock in the Once structure is held over the
+ * initialization call.  We do that so we can guarantee that no one
+ * proceeds from the call until the first Once initialization function
+ * has returned.
+ */
+int
+Once::call(OnceProc *procp, void *contextp)
+{
+    int rval;
+
+    _lock.take();
+    if (!_called) {
+        rval = 1;
+        _called = 1;
+        procp(contextp);
+    }
+    else
+        rval = 0;
+    _lock.release();
+    
+    return rval;
+}
+
+/*****************ThreadHelper****************/
+void *
+ThreadHelper::start()
+{
+    ThreadHelperItem *itemp;
+
+    while(1) {
+        _globalThreadLock.take();
+        itemp = _items.pop();
+        if (itemp == NULL) {
+            _running = 0;
+            sleep(&_globalThreadLock);
+        }
+        else {
+            /* we have something to do */
+            _globalThreadLock.release();
+            if (itemp->_threadToFreep) {
+                delete itemp->_threadToFreep;
+            }
+            if (itemp->_threadToQueuep) {
+                itemp->_threadToQueuep->queue();
+            }
+            delete itemp;
+        }
     }
 }

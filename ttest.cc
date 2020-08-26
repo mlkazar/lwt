@@ -25,6 +25,7 @@ int main_pingWaiting;
 int main_pongWaiting;
 long main_counter;
 long main_maxCount;
+long main_doneCounter;
 
 class PingThread : public Thread
 {
@@ -81,6 +82,7 @@ PingThread::start() {
             printf("%d thread round trips, %ld ns each\n",
                    (int) main_maxCount, (long) (getus() - startUs) * 1000 / main_maxCount);
             printf("Done!\n");
+            main_doneCounter++;
             return NULL;
         }
         _pongThreadp->queue();
@@ -106,6 +108,7 @@ main(int argc, char **argv)
     SpinLock tlock;
     long long startUs;
     PingPong *pingPongp;
+    static const int pingCount = 8;
     
     if (argc<2) {
         printf("usage: ttest <count>\n");
@@ -126,13 +129,18 @@ main(int argc, char **argv)
     ThreadDispatcher::setup(/* # of pthreads */ 2);
 
     /* start thread on a dispatcher */
-    for(i=0;i<8;i++) {
+    main_doneCounter = 0;
+    for(i=0;i<pingCount;i++) {
         pingPongp = new PingPong();
         pingPongp->init();
     }
 
     while(1) {
-        sleep(2);
+        if (main_doneCounter >= pingCount) {
+            printf("All done\n");
+            _exit(0);
+        }
+        sleep(1);
     }
     return 0;
 }

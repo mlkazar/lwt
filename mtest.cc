@@ -32,7 +32,7 @@ void delayRand(long maxSpins) {
         total++;
 };
 
-class Join {
+class Join : public Thread {
 public:
     static const uint32_t _maxThreads = 4;
     JoinA *_joinAsp[_maxThreads];
@@ -43,7 +43,7 @@ public:
         _count = 0;
     }
 
-    void start();
+    void *start();
 };
 
 /* These threads are created by a JoinB task, and then this thread just waits
@@ -87,15 +87,27 @@ JoinA::start()
     Thread::exit(_joinp + _ix);
 }
 
-void
+void *
 Join::start() {
     uint32_t i;
+    printf("Join test; should see 4 threads exit\n");
     for(i=0;i<_maxThreads;i++) {
         _joinAsp[i] = NULL;
         _joinBsp[i] = new JoinB();
         _joinBsp[i]->setParams(this, i);
+        _joinBsp[i]->setJoinable();
         _joinBsp[i]->queue();
     }
+
+    /* now wait for all the JoinB threads to finish */
+    for(i=0;i<_maxThreads;i++) {
+        _joinBsp[i]->join(NULL);
+    }
+    printf("All threads finished for join test\n");
+    _exit(0);
+
+    /* not reached */
+    return NULL;
 }
 
 void *
@@ -117,6 +129,7 @@ JoinB::start()
 
         jap->join(&joinValuep);
         assert(joinValuep = _joinp + _ix);
+        delete jap;
 
         _joinp->_count++;
         if (_joinp->_count > main_maxCount) {
@@ -409,6 +422,7 @@ basic()
     PingPong *pingPongp;
 
     /* start thread on a dispatcher */
+    printf("Warning: with basic test, process doesn't exit when done\n");
     for(i=0; i<8; i++) {
         pingPongp = new PingPong();
         pingPongp->init();
@@ -419,7 +433,7 @@ void
 join()
 {
     main_joinp = new Join();
-    main_joinp->start();
+    main_joinp->queue();
 }
 
 int
@@ -430,7 +444,7 @@ main(int argc, char **argv)
     
     if (argc<2) {
         printf("usage: mtest <testname> <count>\n");
-        printf("usage: testname = {basic,deadlock}\n");
+        printf("usage: testname = {basic,deadlock,join}\n");
         return -1;
     }
     

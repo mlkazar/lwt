@@ -78,6 +78,18 @@ class SpinLock {
     }
 };
 
+class Once {
+    typedef void (OnceProc) (void *handlep);
+    SpinLock _lock;
+    uint8_t _called;
+ public:
+    Once() {
+        _called = 0;
+    }
+
+    int call(OnceProc *procp, void *contextp);
+};
+
 /* use to allow construction of multiple lists of threads */
 class ThreadEntry {
  public:
@@ -103,7 +115,8 @@ class Thread {
     typedef void (InitProc) (void *contextp, Thread *threadp);
 
     /* a list of all threads in existence, and a spin lock that
-     * protects the _allThreads list, and that alone.
+     * protects the _allThreads and joinThreads lists, along with the
+     * joinThreadp pointer.
      */
     static dqueue<ThreadEntry> _allThreads;
     static dqueue<ThreadEntry> _joinThreads;
@@ -160,6 +173,9 @@ class Thread {
     /* flag set if exited thread should hang around until joined */
     uint8_t _joinable;
 
+    /* flag set if we're in the joinThreads queue */
+    uint8_t _inJoinThreads;
+
     /* non-null if _joiningThreadp called join on us, and we weren't ready; protected
      * by globalThreadLock.
      */
@@ -187,13 +203,18 @@ class Thread {
         _blockingMutexp = NULL;
         _joinable = 0;
         _joiningThreadp = 0;
+        _inJoinThreads = 0;
         _exitValuep = NULL;
         _exited = 0;
 
         init();
     }
 
-    /* set the flag */
+    virtual ~Thread();
+
+    /* set the flag; once set, the thread can exit, but its state won't get
+     * freed until the thread is joined.
+     */
     void setJoinable() {
         _joinable = 1;
     }
@@ -260,6 +281,52 @@ class ThreadIdle : public Thread {
     }
 };
 
+/* the items in the helper queue are protected by the globalThreadLock */
+class ThreadHelper : public Thread {
+    class ThreadHelperItem {
+    public:
+        ThreadHelperItem *_dqNextp;
+        ThreadHelperItem *_dqPrevp;
+        Thread *_threadToFreep;
+        Thread *_threadToQueuep;
+        
+        ThreadHelperItem() {
+            _threadToFreep = NULL;
+            _threadToQueuep = NULL;
+            _dqNextp = NULL;
+            _dqPrevp = NULL;
+        }
+    };
+ public:
+    dqueue<ThreadHelperItem> _items;
+    uint8_t _running;
+
+    ThreadHelper() {
+        _running = 0;
+    }
+
+    void *start();
+
+    /* must be called with globalThreadLock held */
+    void queueItem(Thread *toQueuep, Thread *toFreep) {
+        int doStart;
+        ThreadHelperItem *itemp = new ThreadHelperItem();
+        itemp->_threadToQueuep = toQueuep;
+        itemp->_threadToFreep = toFreep;
+        _items.append(itemp);
+        if (_running)
+            doStart = 0;
+        else {
+            _running = 1;
+            doStart = 1;
+        }
+
+        if (doStart) {
+            queue();
+        }
+    }
+};
+
 class ThreadDispatcherQueue {
     friend class ThreadDispatcher;
     friend class Thread;
@@ -305,6 +372,7 @@ class ThreadDispatcher {
      * the dispatcher.
      */
     ThreadIdle _idle;
+    ThreadHelper _helper;
 
     static void globalInit() {
         pthread_key_create(&_dispatcherKey, NULL);
