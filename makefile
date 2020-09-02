@@ -1,8 +1,8 @@
-all: libthread.a ttest mtest
+all: libthread.a ttest mtest eptest
 
 DESTDIR=~/export
 
-INCLS=thread.h threadmutex.h osp.h dqueue.h
+INCLS=thread.h threadmutex.h osp.h dqueue.h epoll.h
 
 install: all
 	-mkdir $(DESTDIR)/include $(DESTDIR)/lib $(DESTDIR)/bin
@@ -10,7 +10,7 @@ install: all
 	cp -up libthread.a $(DESTDIR)/lib
 
 clean:
-	-rm -f ttest mtest *.o *.a *temp.s
+	-rm -f ttest mtest eptest *.o *.a *temp.s
 	(cd alternatives; make clean)
 
 getcontext.o: getcontext.s
@@ -29,12 +29,15 @@ osp.o: osp.cc $(INCLS)
 threadmutex.o: threadmutex.cc $(INCLS)
 	g++ -c -g threadmutex.cc -pthread
 
-libthread.a: thread.o getcontext.o setcontext.o threadmutex.o osp.o
-	ar cr libthread.a thread.o getcontext.o setcontext.o threadmutex.o osp.o
+libthread.a: epoll.o thread.o getcontext.o setcontext.o threadmutex.o osp.o
+	ar cr libthread.a epoll.o thread.o getcontext.o setcontext.o threadmutex.o osp.o
 	ranlib libthread.a
 
 thread.o: thread.cc $(INCLS)
 	g++ -c -g -o thread.o thread.cc -pthread
+
+epoll.o: epoll.cc $(INCLS)
+	g++ -c -g -o epoll.o epoll.cc -pthread
 
 ttest.o: ttest.cc $(INCLS)
 	g++ -c -g -o ttest.o ttest.cc -pthread
@@ -45,6 +48,11 @@ ttest: ttest.o libthread.a
 mtest.o: mtest.cc $(INCLS)
 	g++ -c -g -o mtest.o mtest.cc -pthread
 
+eptest.o: eptest.cc $(INCLS)
+	g++ -c -g -o eptest.o eptest.cc -pthread
+
 mtest: mtest.o libthread.a
 	g++ -g -o mtest mtest.o libthread.a -pthread
 
+eptest: eptest.o libthread.a
+	g++ -g -o eptest eptest.o libthread.a -pthread

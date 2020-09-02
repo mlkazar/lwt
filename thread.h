@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <ucontext.h>
 #include <pthread.h>
+#include <string>
 #include <atomic>
 
 #include "dqueue.h"
@@ -141,6 +142,7 @@ class Thread {
      * so that gdb can read the thread and setup a copy of the registers for 
      * debugging.
      */
+    std::string _name;
 
     /* list of threads waiting for join */
     ThreadEntry _joinEntry;
@@ -152,6 +154,16 @@ class Thread {
 
     /* set to the current dispatcher when a thread is loaded onto a processor */
     ThreadDispatcher *_currentDispatcherp; /* current dispatcher for running thread */
+
+    /* certain threads are really pthreads.  They only run on a dispatcher that
+     * runs if the thread sleeps, and the only thread that the dispatcher will
+     * ever see in its run queue is this thread.  These special threads
+     * have _wiredDispatcherp set to the dispatcher in question, and they
+     * override their thread's queue function to always put the thread
+     * in the wiredDispatcher's runQueue.  That dispatcher isn't in allDispatchers,
+     * so normal round robin threads never get queued to it.
+     */
+    ThreadDispatcher *_wiredDispatcherp;
 
  private:
     /* used by getcontext to differentiate between when the dispatcher calls it to
@@ -192,22 +204,12 @@ class Thread {
     static void ctxStart(unsigned int p1, unsigned int p2);
 
  public:
-    Thread() {
-        _goingToSleep = 0;
-        _marked = 0;
-        _globalThreadLock.take();
-        _allEntry._threadp = this;
-        _allThreads.append(&_allEntry);
-        _globalThreadLock.release();
-        _currentDispatcherp = NULL;
-        _blockingMutexp = NULL;
-        _joinable = 0;
-        _joiningThreadp = 0;
-        _inJoinThreads = 0;
-        _exitValuep = NULL;
-        _exited = 0;
+    Thread(std::string name) {
+        init(name);
+    }
 
-        init();
+    Thread() {
+        init("[None]");
     }
 
     virtual ~Thread();
@@ -240,18 +242,25 @@ class Thread {
      */
     void sleep(SpinLock *lockp);
 
-    /* queued to start a task that's been put to sleep, or freshly constructed */
-    void queue();
+    /* queued to start a task that's been put to sleep, or freshly
+     * constructed.  Can be overridden to splice in a queue that uses
+     * a dedicated dispatcher.
+     */
+    virtual void queue();
 
     static Thread *getCurrent();
 
     void exit(void *exitCodep);
 
+    void setName(std::string name) {
+        _name = name;
+    }
+
     int32_t join(void **ptrpp);
 
  private:
     /* internal function used in constructing a task */
-    void init();
+    void init(std::string name);
 
     void resume();
 };
@@ -279,6 +288,15 @@ class ThreadIdle : public Thread {
         _userLockToReleasep = NULL;
         return lockp;
     }
+};
+
+class ThreadMain : public Thread {
+    void *start() {
+        osp_assert(0);
+    }
+
+    /* overridden to place the thread back in the wired dispatcher's run queue */
+    void queue();
 };
 
 /* the items in the helper queue are protected by the globalThreadLock */
@@ -407,7 +425,7 @@ class ThreadDispatcher {
         return isSleeping;
     }
 
-    ThreadDispatcher();
+    ThreadDispatcher(int special=0);
 
     void pauseDispatching();
 
@@ -418,6 +436,8 @@ class ThreadDispatcher {
     static void resumeAllDispatching();
 
     static int pausedAllDispatching();
+
+    static void pthreadTop();
 };
 
 #endif /* __THREAD_H_ENV__ */ 

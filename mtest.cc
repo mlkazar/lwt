@@ -39,7 +39,7 @@ public:
     JoinB *_joinBsp[_maxThreads];
     uint32_t _count;
 
-    Join() {
+    Join() : Thread("Join") {
         _count = 0;
     }
 
@@ -53,6 +53,8 @@ class JoinA : public Thread {
 public:
     Join *_joinp;
     uint32_t _ix;
+
+    JoinA() : Thread("JoinA") {};
 
     void setParams(Join *joinp, uint32_t ix) {
         _ix = ix;
@@ -72,6 +74,9 @@ class JoinB : public Thread {
 public:
     Join *_joinp;
     uint32_t _ix;
+
+    JoinB() : Thread("JoinB") {};
+
     void setParams(Join *joinp, uint32_t ix) {
         _ix = ix;
         _joinp = joinp;

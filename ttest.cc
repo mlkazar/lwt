@@ -4,6 +4,7 @@
 #include <sys/time.h>
 #include <stdio.h>
 #include <assert.h>
+#include <string>
 
 #include "thread.h"
 
@@ -34,6 +35,10 @@ public:
     PongThread *_pongThreadp;
     void *start();
 
+    PingThread() : Thread("Ping") {
+        return;
+    };
+
     void setParms(PongThread *pongThreadp, SpinLock *lockp) {
         _pongThreadp = pongThreadp;
         _lockp = lockp;
@@ -46,6 +51,10 @@ public:
     SpinLock *_lockp;
     PingThread *_pingThreadp;
     void *start();
+
+    PongThread() : Thread("Pong") {
+        return;
+    }
 
     void setParms(PingThread *pingThreadp, SpinLock *lockp) {
         _pingThreadp = pingThreadp;

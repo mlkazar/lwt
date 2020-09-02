@@ -25,9 +25,26 @@ dqueue<ThreadEntry> Thread::_joinThreads;
 
 /* internal function doing some of the initialization of a thread */
 void
-Thread::init()
+Thread::init(std::string name)
 {
     static const long memSize = 1024*1024;
+
+    _goingToSleep = 0;
+    _marked = 0;
+    _globalThreadLock.take();
+    _allEntry._threadp = this;
+    _allThreads.append(&_allEntry);
+    _globalThreadLock.release();
+    _currentDispatcherp = NULL;
+    _wiredDispatcherp = NULL;
+    _blockingMutexp = NULL;
+    _joinable = 0;
+    _joiningThreadp = 0;
+    _inJoinThreads = 0;
+    _exitValuep = NULL;
+    _exited = 0;
+    _name = name;
+
     GETCONTEXT(&_ctx);
     _ctx.uc_link = NULL;
     _ctx.uc_stack.ss_sp = malloc(memSize);
@@ -59,8 +76,8 @@ Thread::ctxStart(unsigned int p1, unsigned int p2)
     Thread *threadp = (Thread *)threadInt;
 
     threadp->start();
-    printf("Thread %p returned from start\n", threadp);
 
+    /* if the thread returns, just have it exit */
     threadp->exit(NULL);
 }
 
@@ -335,6 +352,30 @@ ThreadDispatcher::dispatcherTop(void *ctx)
     printf("Error: dispatcher %p top level return!!\n", disp);
 }
 
+/* static */ void
+ThreadDispatcher::pthreadTop()
+{
+    ThreadDispatcher *mainDisp;
+    Thread *mainThreadp;
+
+    /* create a special dispatcher for a pthread, so we can do
+     * threadmutex operations from this thread without having to queue
+     * a special thread to do that work.
+     */
+    mainDisp = new ThreadDispatcher(1);
+    pthread_setspecific(_dispatcherKey, mainDisp);
+    mainThreadp = new ThreadMain();
+
+    /* make it look like this dispatcher dispatched this thread; set
+     * the wiredDispatcher field so that we always queue this to the
+     * pthread's dispatcher, which is always running while our main
+     * thread is asleep.
+     */
+    mainDisp->_currentThreadp = mainThreadp;
+    mainThreadp->_currentDispatcherp = mainDisp;
+    mainThreadp->_wiredDispatcherp = mainDisp;
+}
+
 /* External; utility function to create a number of dispatchers */
 /* static */ void
 ThreadDispatcher::setup(uint16_t ndispatchers)
@@ -353,13 +394,17 @@ ThreadDispatcher::setup(uint16_t ndispatchers)
     for(i=0;i<ndispatchers;i++) {
         pthread_create(&junk, NULL, dispatcherTop, _allDispatchers[i]);
     }
+
+    pthreadTop();
 }
 
 /* Internal constructor to create a new dispatcher */
-ThreadDispatcher::ThreadDispatcher() {
-    Thread::_globalThreadLock.take();
-    _allDispatchers[_dispatcherCount++] = this;
-    Thread::_globalThreadLock.release();
+ThreadDispatcher::ThreadDispatcher(int special) {
+    if (!special) {
+        Thread::_globalThreadLock.take();
+        _allDispatchers[_dispatcherCount++] = this;
+        Thread::_globalThreadLock.release();
+    }
 
     _sleeping = 0;
     _currentThreadp = NULL;
@@ -508,4 +553,12 @@ ThreadHelper::start()
             delete itemp;
         }
     }
+}
+
+/*****************ThreadMain*****************/
+void
+ThreadMain::queue()
+{
+    assert(_wiredDispatcherp != NULL);
+    _wiredDispatcherp->queueThread(this);
 }
