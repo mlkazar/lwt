@@ -72,15 +72,13 @@ PipeTest::PipeReader::start() {
     int32_t code;
     char tc;
 
-    _eventp = new EpollEvent(_fd, EpollEvent::epollIn);
-    _sysp->addEvent(_eventp);
+    _eventp = new EpollEvent(_sysp, _fd);
     while(1) {
-        _eventp->wait();
+        _eventp->wait(EpollEvent::epollIn);
         code = read(_fd, &tc, 1);
         if (code != 1) {
             break;
         }
-        _eventp->reenable();
     }
 }
 
@@ -91,19 +89,18 @@ PipeTest::PipeWriter::start() {
     uint32_t count;
     int32_t code;
 
-    _eventp = new EpollEvent(_fd, EpollEvent::epollOut);
-    _sysp->addEvent(_eventp);
+    _eventp = new EpollEvent(_sysp, _fd);
     maxCount = _ptestp->getIterations();
     count  = 0;
     while(count < maxCount) {
-        _eventp->wait();
+        _eventp->wait(EpollEvent::epollOut);
         code = write(_fd, &tc, 1);
         if (code != 1) {
             break;
         }
         count++;
-        _eventp->reenable();
     }
+    _eventp->close();
     close(_fd);
 }
 
@@ -120,6 +117,7 @@ main(int argc, char **argv)
 
     if (argc <= 2) {
         printf("usage: eptest <thread count> <count of interations>\n");
+        return 0;
     }
 
     threadCount = atoi(argv[1]);

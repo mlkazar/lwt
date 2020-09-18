@@ -63,6 +63,7 @@ EpollSys::threadStart(void *argp)
             ev.events = EPOLLONESHOT | ((ep->_flags & EpollEvent::epollIn)? EPOLLIN : EPOLLOUT);
             ev.data.ptr = ep;
             code = epoll_ctl(sysp->_epFd, EPOLL_CTL_ADD, ep->_fd, &ev);
+            printf("EPOLL added ep=%p fd=%d code=%d\n", ep, ep->_fd, code);
             if (code < 0) {
                 perror("epoll add");
                 ep->_failed = 1;
@@ -76,15 +77,9 @@ EpollSys::threadStart(void *argp)
 
         for(ep = sysp->_removingEvents.head(); ep; ep = nep) {
             nep = ep->_dqNextp;
-            ev.events = 0;
-            ev.data.ptr = ep;
-            code = epoll_ctl(sysp->_epFd, EPOLL_CTL_DEL, ep->_fd, &ev);
-            if (code < 0) {
-                perror("epoll remove");
-                ep->_failed = 1;
-                ep->_triggered = 1;
-                ep->_cv.broadcast();
-            }
+            /* closing the file descriptor removes it from the epoll set,
+             * and the event was put in this queue by close
+             */
             sysp->_removingEvents.remove(ep);
             ep->_inQueue = EpollEvent::inRemovingQueue;
 
@@ -94,7 +89,7 @@ EpollSys::threadStart(void *argp)
              * event and then triggers the removal of the event from
              * the set of epoll events.
              */
-            ep->release();
+            ep->releaseNL();
         }
 
         sysp->_running = 0;
@@ -127,21 +122,6 @@ EpollSys::threadStart(void *argp)
         }
         sysp->_lock.release();
     }
-}
-
-int32_t
-EpollSys::addEvent(EpollEvent *evp)
-{
-    _lock.take();
-    /* should only be called with newly created event object */
-    osp_assert(evp->_inQueue == EpollEvent::inNoQueue);
-
-    evp->_sysp = this;
-    _addingEvents.append(evp);
-    evp->_inQueue = EpollEvent::inAddingQueue;
-
-    wakeThreadNL();
-    _lock.release();
 }
 
 void
@@ -189,25 +169,27 @@ EpollSys::close()
 }
 
 void
-EpollEvent::reenable()
+EpollEvent::reenableNL(Flags fl)
 {
     int32_t code;
     epoll_event ev;
-
-    _sysp->_lock.take();
     
-    /* we only want to see the triggered flag go on if it happens
-     * after we reenable the event.  You don't reenable the event
-     * until after you've finished reading/writing to the file
-     * descriptor being monitored.
-     */
-    _triggered = 0;
+    /* for debugging more than anything else, remember what we've enabled last */
+    _flags = fl;
 
     ev.events = EPOLLONESHOT | ((_flags & EpollEvent::epollIn)? EPOLLIN : EPOLLOUT);
     ev.data.ptr = this;
-    code = epoll_ctl(_sysp->_epFd, EPOLL_CTL_MOD, _fd, &ev);
+    if (!_added) {
+        code = epoll_ctl(_sysp->_epFd, EPOLL_CTL_ADD, _fd, &ev);
+        _added = 1;
+    }
+    else {
+        code = epoll_ctl(_sysp->_epFd, EPOLL_CTL_MOD, _fd, &ev);
+    }
+    if (code < 0) {
+        perror("reenableNL");
+    }
     _sysp->wakeThreadNL();
-    _sysp->_lock.release();
 }
 
 void

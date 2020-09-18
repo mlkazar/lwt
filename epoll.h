@@ -41,6 +41,12 @@ class EpollSys {
 
     void wakeThreadNL();
 
+    void hold() {
+        _lock.take();
+        _refCount++;
+        _lock.release();
+    }
+
     /* not sure this is useful */
     void release() {
         _lock.take();
@@ -58,10 +64,19 @@ class EpollSys {
  * will terminate and drop its reference, and all events will trigger with a shutdown
  * indication.  Once all user references to events and sys are gone, all memory will
  * be freed.
+ *
+ * The way that events work is that they're disabled once they
+ * trigger, until we reenable them.  The typical use is for the user
+ * to call wait, and then reenable the trigger once some data has been
+ * consumed.  But if someone calls wait a second time forgetting to
+ * reenable, we want to reenable it automatically for them.  So, even
+ * though triggered and mustReenable seem similar, they get turned off
+ * at different times.
  */
 class EpollEvent {
     friend class EpollSys;
  public:
+    /* these are bitmasks */
     enum Flags {
         epollIn = 1,
         epollOut = 2
@@ -80,6 +95,8 @@ class EpollEvent {
     uint8_t _triggered;
     uint8_t _active;            /* added to epoll kernel queue */
     uint8_t _failed;
+    uint8_t _added;             /* first time must call add instead */
+    Flags _flags;               /* flags of last type we waited for */
 
     /* which queue are we in */
     QueueId _inQueue;
@@ -89,19 +106,21 @@ class EpollEvent {
     EpollEvent *_dqPrevp;
  private:
 
-    Flags _flags;
     EpollSys *_sysp;
     ThreadCond _cv;
 
  public:
-    EpollEvent(int fd, Flags flags) {
+    EpollEvent(EpollSys *sysp, int fd) {
         _fd = fd;
         _refCount = 1;
         _triggered = 0;
         _active = 0;
+        _added = 0;
         _failed = 0;
-        _flags = flags;
-        _sysp = NULL;
+        _flags = (Flags) 0;
+        _sysp = sysp;
+        _sysp->hold();
+        _cv.setMutex(&sysp->_lock);
         _dqPrevp = NULL;
         _dqNextp = NULL;
         _inQueue = inNoQueue;
@@ -121,15 +140,27 @@ class EpollEvent {
         _inQueue = inNoQueue;
     }
 
-    int32_t wait() {
-        int32_t rcode = 0;
+    int32_t wait(Flags fl) {
         _sysp->_lock.take();
+
+        /* if this event has already been triggered, turn off the indicator
+         * and return.
+         */
+        if (_triggered) {
+            _triggered = 0;
+            _sysp->_lock.release();
+            return 0;
+        }
+
+        /* reenable or add it the first time */
+        reenableNL(fl);
+
         while ( !_triggered) {
             _cv.wait(&_sysp->_lock);
         }
         _triggered = 0;
         _sysp->_lock.release();
-        return rcode;
+        return 0;
     }
 
     void closeNL() {
@@ -153,7 +184,9 @@ class EpollEvent {
         _sysp->_lock.release();
     }
 
-    /* drop a reference */
+    /* drop a reference; this is for internal use only; owners of an event
+     * should call close on it, which will move it to a queue for releasing.
+     */
     void release() {
         _sysp->_lock.take();
         releaseNL();
@@ -162,7 +195,16 @@ class EpollEvent {
 
     void releaseNL();
 
-    void reenable();
+    void reenableNL(Flags fl);
+
+#if 0
+    void reenable() {
+        _sysp->_lock.take();
+        reenableNL();
+        _sysp->_lock.release();
+    }
+#endif
+
 };
 
 #endif /*  _EPOLL_H_ENV__ */
