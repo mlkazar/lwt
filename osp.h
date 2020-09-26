@@ -8,4 +8,6 @@
 
 extern long long osp_getUs();
 
+extern long long osp_getMs();
+
 #endif /* __OSP_H_ENV__ */

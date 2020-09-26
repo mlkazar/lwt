@@ -13,3 +13,8 @@ osp_getUs()
     us = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
     return us;
 }
+
+long long
+osp_getMs() {
+    return osp_getUs() / 1000;
+}
