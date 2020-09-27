@@ -4,7 +4,26 @@
 #include <sys/types.h>
 #include <pthread.h>
 #include "thread.h"
+#include "threadmutex.h"
 #include "dqueue.h"
+
+class ThreadTimer;
+
+/* helper class for simple sleep operations */
+class ThreadTimerSleep {
+    uint32_t _ms;
+    ThreadMutex _mutex;
+    ThreadCond _cv;
+
+    static void condWakeup(ThreadTimer *timerp, void *contextp);
+
+ public:
+    ThreadTimerSleep() {
+        _cv.setMutex(&_mutex);
+    }
+
+    int32_t sleep(uint32_t ms);
+};
 
 /* The model for ThreadTimers is a little subtle.  Because we're on an MP, there's
  * an inherent race between canceling a timer and the callback from a timer.  If a timer
@@ -66,6 +85,12 @@ class ThreadTimer {
     void release() {
         assert(_refCount > 0);
         if (--_refCount == 0) {
+            /* make sure it isn't in a queue */
+            if (_inQueue) {
+                _allTimers.remove(this);
+                _inQueue = 0;
+            }
+
             assert(_canceled);
             delete this;
         }
@@ -79,6 +104,14 @@ class ThreadTimer {
 
     int isCanceled() {
         return _canceled;
+    }
+
+    static int32_t sleep(uint32_t ams) {
+        ThreadTimerSleep sleeper;
+        int32_t code;
+
+        code = sleeper.sleep(ams);
+        return code;
     }
 
     static void init();

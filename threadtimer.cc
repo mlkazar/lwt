@@ -59,6 +59,7 @@ ThreadTimer::timerManager(void *parmp)
             assert(timerp->_inQueue);
             if (now >= timerp->_expiration) {
                 _allTimers.remove(timerp);
+                timerp->_inQueue = 0;
                 timerp->hold();
                 pthread_mutex_unlock(&_timerMutex);
                 timerp->_callbackp(timerp, timerp->_contextp);
@@ -105,8 +106,11 @@ ThreadTimer::start()
 
     _expiration = osp_getMs() + _msecs;
     pthread_mutex_lock(&_timerMutex);
-    _inQueue = 1;
+    if (_inQueue) {
+        _allTimers.remove(this);
+    }
 
+    _inQueue = 1;
     /* sorted insert, keeping timer list sorted by increasing expiration time */
     for(ttp = _allTimers.tail(); ttp; ttp=ttp->_dqPrevp) {
         if (ttp->_expiration <= _expiration)
@@ -137,4 +141,29 @@ ThreadTimer::cancel()
         release();
     }
     pthread_mutex_unlock(&_timerMutex);
+}
+
+/* static */ void
+ThreadTimerSleep::condWakeup(ThreadTimer *timerp, void *contextp)
+{
+    ThreadTimerSleep *sp = (ThreadTimerSleep *)contextp;
+    sp->_mutex.take();
+    sp->_cv.broadcast();
+    sp->_mutex.release();
+}
+
+int32_t
+ThreadTimerSleep::sleep(uint32_t ams)
+{
+    ThreadTimer *localTimerp;
+
+    _ms = ams;
+    localTimerp = new ThreadTimer(ams, &ThreadTimerSleep::condWakeup, this);
+
+    _mutex.take();
+    localTimerp->start();       /* automatically free when it fires */
+    _cv.wait(&_mutex);
+    _mutex.release();
+
+    return 0;
 }
