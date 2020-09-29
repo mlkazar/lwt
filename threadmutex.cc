@@ -226,6 +226,9 @@ ThreadCond::wait(ThreadMutex *mutexp)
     /* keep track which mutex is associated with this condition variable */
     if (_mutexp == NULL)
         _mutexp = mutexp;
+    else if (mutexp == NULL) {
+        mutexp = _mutexp;
+    }
     else {
         assert(_mutexp == mutexp);
     }
@@ -233,17 +236,17 @@ ThreadCond::wait(ThreadMutex *mutexp)
     /* grab the spinlock protecting te mutex, and put ourselves to sleep
      * on the CV.  Finally, drop the mutex.
      */
-    _mutexp->_lock.take();
+    mutexp->_lock.take();
     assert(mep == mutexp->_ownerp);
     
     /* queue our task for the CV */
     _waiting.append(mep);
 
     /* and block, releasing the associated mutex */
-    _mutexp->releaseAndSleep(mep);
+    mutexp->releaseAndSleep(mep);
 
     /* and reobtain it on the way back out */
-    _mutexp->take();
+    mutexp->take();
 }
 
 /* wakeup a single waiting thread */

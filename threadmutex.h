@@ -27,7 +27,7 @@ class ThreadCond {
         _mutexp = mutexp;
     }
 
-    void wait(ThreadMutex *mutexp);
+    void wait(ThreadMutex *mutexp = 0);
 
     void signal();
 

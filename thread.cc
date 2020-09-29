@@ -21,6 +21,8 @@ SpinLock Thread::_globalThreadLock;
 dqueue<ThreadEntry> Thread::_allThreads;
 dqueue<ThreadEntry> Thread::_joinThreads;
 
+ThreadMon *ThreadMon::_monp = 0;
+
 /*****************Thread*****************/
 
 /* internal function doing some of the initialization of a thread */
@@ -382,6 +384,9 @@ ThreadDispatcher::setup(uint16_t ndispatchers)
 {
     pthread_t junk;
     uint32_t i;
+
+    /* setup monitoring system */
+    new ThreadMon();
 
     for(i=0;i<ndispatchers;i++) {
         new ThreadDispatcher();

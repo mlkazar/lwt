@@ -91,6 +91,30 @@ class Once {
     int call(OnceProc *procp, void *contextp);
 };
 
+class ThreadMon {
+ public:
+    typedef void checkProc(void *contextp);
+    checkProc *_procp;
+    void *_contextp;
+
+    static void setParams(checkProc *procp, void *contextp) {
+        _monp->_procp = procp;
+        _monp->_contextp = contextp;
+    }
+
+    static void check() {
+        if (_monp && _monp->_procp)
+            _monp->_procp(_monp->_contextp);
+    }
+
+    ThreadMon() {
+        _procp = NULL;
+        _contextp = NULL;
+        _monp = this;
+    }
+    static ThreadMon *_monp;
+};
+
 /* use to allow construction of multiple lists of threads */
 class ThreadEntry {
  public:
