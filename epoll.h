@@ -1,6 +1,58 @@
 #ifndef _EPOLL_H_ENV__
 #define _EPOLL_H_ENV__ 1
 
+/*
+
+Copyright 2016-2020 Cazamar Systems
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+*/
+
+/* This module provides an async interface for waiting for file
+ * descriptors to be ready for reading, writing or accepting
+ * connections.  The file descriptor doesn't have to be in
+ * non-blocking mode.
+ *
+ * You start by creating an EpollSys object, which has an associated
+ * pthread that does the actual waiting.  Then you create a new
+ * EpollEvent for a file descriptor, and you call the wait method with
+ * either epollIn or epollOut, to wait for either input to be
+ * available, or for at least *some* room for output to be available.
+ * You wait for input if you're waiting for a new connection from a
+ * listening socket.
+ *
+ * While waiting, the Thread is sleeping, but the dispatcher pthread
+ * runs other Threads while waiting.
+ *
+ * The epoll system uses level-triggered events.  When you call wait,
+ * the event is reenabled, and the wait call returns if the event is
+ * ready.  Once wait returns, the event is disabled, and won't show up
+ * in the epoll results, until wait is called again.
+ *
+ * When done with an epoll event, you call close on the event object;
+ * this will release its reference and free the underlying storage.
+ *
+ * Similarly, after releasing any events from the epollSys, you can
+ * close the epollSys object and its storage will eventually be freed.
+ */
 #include <sys/epoll.h>
 #include <pthread.h>
 
