@@ -122,7 +122,7 @@ class ThreadMon {
     checkProc *_procp;
     void *_contextp;
 
-    static void setParams(checkProc *procp, void *contextp) {
+    static void init(checkProc *procp, void *contextp) {
         _monp->_procp = procp;
         _monp->_contextp = contextp;
     }

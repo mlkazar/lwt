@@ -79,7 +79,7 @@ public:
 
     JoinA() : Thread("JoinA") {};
 
-    void setParams(Join *joinp, uint32_t ix) {
+    void init(Join *joinp, uint32_t ix) {
         _ix = ix;
         _joinp = joinp;
     }
@@ -100,7 +100,7 @@ public:
 
     JoinB() : Thread("JoinB") {};
 
-    void setParams(Join *joinp, uint32_t ix) {
+    void init(Join *joinp, uint32_t ix) {
         _ix = ix;
         _joinp = joinp;
     }
@@ -122,7 +122,7 @@ Join::start() {
     for(i=0;i<_maxThreads;i++) {
         _joinAsp[i] = NULL;
         _joinBsp[i] = new JoinB();
-        _joinBsp[i]->setParams(this, i);
+        _joinBsp[i]->init(this, i);
         _joinBsp[i]->setJoinable();
         _joinBsp[i]->queue();
     }
@@ -148,7 +148,7 @@ JoinB::start()
         /* create a task who will delay a while and then exit */
         jap = new JoinA();
         _joinp->_joinAsp[_ix] = jap;
-        jap->setParams(_joinp, _ix);
+        jap->init(_joinp, _ix);
         jap->setJoinable();
         jap->queue();
 
