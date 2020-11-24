@@ -1,6 +1,6 @@
 all: libthread.a ttest mtest eptest timertest
 
-DESTDIR=~/export
+DESTDIR=../export
 
 INCLS=thread.h threadmutex.h osp.h dqueue.h epoll.h threadtimer.h
 
@@ -26,14 +26,17 @@ setcontext.o: setcontext.s
 osp.o: osp.cc $(INCLS)
 	g++ -c -g osp.cc -pthread
 
+ospnew.o: ospnew.cc $(INCLS)
+	g++ -c -g ospnew.cc -pthread
+
 threadtimer.o: threadtimer.cc $(INCLS)
 	g++ -c -g threadtimer.cc -pthread
 
 threadmutex.o: threadmutex.cc $(INCLS)
 	g++ -c -g threadmutex.cc -pthread
 
-libthread.a: epoll.o thread.o getcontext.o setcontext.o threadmutex.o osp.o threadtimer.o
-	ar cr libthread.a epoll.o thread.o getcontext.o setcontext.o threadmutex.o osp.o threadtimer.o
+libthread.a: epoll.o thread.o getcontext.o setcontext.o threadmutex.o osp.o ospnew.o threadtimer.o
+	ar cr libthread.a epoll.o thread.o getcontext.o setcontext.o threadmutex.o osp.o ospnew.o threadtimer.o
 	ranlib libthread.a
 
 thread.o: thread.cc $(INCLS)
