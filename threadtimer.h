@@ -108,6 +108,7 @@ class ThreadTimer {
         _refCount++;
     }
 
+    /* called with global lock held */
     void release() {
         assert(_refCount > 0);
         if (--_refCount == 0) {
@@ -121,7 +122,6 @@ class ThreadTimer {
             delete this;
         }
     }
-
 
     /* returns true if canceled, false if timer is already going to run; frees the timer
      * structure (eventually, if it is already running).
@@ -141,6 +141,83 @@ class ThreadTimer {
     }
 
     static void init();
+};
+
+/* the reason for all this complexity is that we can't recognize a canceled timer
+ * without using a static lock, since the context may be freed by the time the
+ * timer fires.
+ */
+class ThreadCondTimed {
+    static ThreadMutex _internalLock;
+    ThreadTimer *_timerp;
+    ThreadCond _cv;
+    ThreadMutex *_mutexp;
+
+    static void timerFired(ThreadTimer *timerp, void *contextp) {
+        ThreadCondTimed *p = (ThreadCondTimed *) contextp;
+        _internalLock.take();
+        if (timerp->isCanceled()) {
+            _internalLock.release();
+            return;
+        }
+        p->_cv.broadcast();
+        p->_timerp = NULL;
+        _internalLock.release();
+    }
+
+ public:
+    void setMutex(ThreadMutex *mutexp) {
+        _mutexp = mutexp;
+    }
+
+    ThreadCondTimed() {
+        _cv.setMutex(&_internalLock);
+        _mutexp = NULL;
+        _timerp = NULL;
+    }
+
+    ThreadCondTimed(ThreadMutex *mutexp) {
+        _mutexp = mutexp;
+        _timerp = NULL;
+    }
+
+    void broadcast() {
+        _internalLock.take();
+        _cv.broadcast();
+        _internalLock.release();
+    }
+
+    void wait() {
+        _internalLock.take();
+        _mutexp->release();
+        _cv.wait();
+        _internalLock.release();
+        _mutexp->take();
+    }
+
+    /* returns true if timer didn't fire, false if it did.  Note that timer firing
+     * still might mean we were woken up by a broadcast, but if timer didn't fire,
+     * we were definitely woken by a broadcast.  The return value really shouldn't be
+     * used, except by code coverage tests.
+     */
+    int timedWait(uint32_t ms) {
+        int rval;
+        _internalLock.take();
+        _mutexp->release();
+        _timerp = new ThreadTimer(ms, &ThreadCondTimed::timerFired, this);
+        _timerp->start();
+        _cv.wait();
+        if (_timerp) {
+            _timerp->cancel();
+            _timerp = NULL;
+            rval = 1;
+        }
+        else 
+            rval = 0;
+        _internalLock.release();
+        _mutexp->take();
+        return rval;
+    }
 };
 
 #endif /* __THREADTIMER_H_ENV__ */

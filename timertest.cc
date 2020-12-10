@@ -48,6 +48,92 @@ void delayRand(long maxSpins) {
         total++;
 };
 
+class TimedTest : public Thread {
+public:
+    ThreadCondTimed _cv;
+    ThreadMutex _lock;
+    uint32_t _count;
+
+    class Sleeper : public Thread {
+    public:
+        uint32_t _count;
+        TimedTest *_testp;
+
+        void init(TimedTest *testp, uint32_t count) {
+            _count = count;
+            _testp = testp;
+        }
+
+        void *start() {
+            uint32_t i;
+            uint32_t timeouts = 0;
+            int32_t code;
+
+            _testp->_lock.take();
+            for(i=0;i<_count;i++) {
+                if ((i%100) == 0)
+                    printf("TimedWait: sleeper currently at %d iterations with %d timeouts\n",
+                           i, timeouts);
+                code = _testp->_cv.timedWait(10);
+                if (code == 0)
+                    timeouts++;
+            }
+            _testp->_lock.release();
+            printf("TimedWait test: sleeper done %d iterations with %d wakeups due to timeout\n",
+                   _testp->_count, timeouts);
+        }
+    };
+
+    class Waker : public Thread {
+    public:
+        TimedTest *_testp;
+        uint32_t _count;
+        void init(TimedTest *testp, uint32_t count) {
+            _count = count;
+            _testp = testp;
+        }
+
+        void *start() {
+            uint32_t i;
+            for(i=0;i<_count;i++) {
+                _testp->_cv.broadcast();
+                ThreadTimer::sleep(10);
+            }
+            printf("TimedWait test: %d wakeups done\n", _testp->_count);
+        };
+    };
+
+    Sleeper _sleeper;
+    Waker _waker;
+
+    void init(uint32_t count) {
+        _count = count;
+    }
+
+    void *start() {
+        void *junkp;
+
+        printf("Starting timedWait test with sleeper=%p waker=%p\n", &_sleeper, &_waker);
+
+        _sleeper.init(this, _count * 11 / 10);
+        _sleeper.setJoinable();
+        _sleeper.queue();
+
+        _waker.init(this, _count);
+        _waker.setJoinable();
+        _waker.queue();
+
+        _waker.join(&junkp);
+        _sleeper.join(&junkp);
+        printf("TimedTest done\n");
+    }
+
+    TimedTest() {
+        _cv.setMutex(&_lock);
+        _count = 0;
+    }
+};
+
 class CancelTest : public Thread {
     static ThreadMutex _mutex;
     ThreadTimer *_timerp;
@@ -91,7 +177,8 @@ public:
             _timerp->start();
             _mutex.release();
 
-            if(++counter > main_maxCount) {
+            counter += 5;       /* these are slow, so don't run as many */
+            if(counter > main_maxCount) {
                 _timerp->cancel();
                 _timerp = NULL;
                 printf("Cancel test done\n");
@@ -173,6 +260,7 @@ main(int argc, char **argv)
     TimerTest *testp;
     SleepTest *sleepTestp;
     CancelTest *cancelTestp;
+    TimedTest *timedTestp;
     void *junk;
     
     if (argc<2) {
@@ -187,6 +275,12 @@ main(int argc, char **argv)
 
     ThreadTimer::init();
 
+    timedTestp = new TimedTest();
+    timedTestp->setJoinable();
+    timedTestp->init(main_maxCount);
+    timedTestp->queue();
+
+    timedTestp->join(&junk);
     testp = new TimerTest();
     testp->setJoinable();
     testp->queue();

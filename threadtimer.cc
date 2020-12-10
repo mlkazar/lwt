@@ -33,6 +33,7 @@ int ThreadTimer::_noticeFds[2];
 int ThreadTimer::_threadRunning;
 dqueue<ThreadTimer> ThreadTimer::_allTimers;
 int ThreadTimer::_didInit= 0;
+ThreadMutex ThreadCondTimed::_internalLock;
 
 /* static */ void
 ThreadTimer::init()
