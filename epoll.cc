@@ -72,6 +72,8 @@ EpollSys::threadStart(void *argp)
      */
     ThreadDispatcher::pthreadTop();
 
+    sysp->_pthread = pthread_self();
+
     ev.events = EPOLLIN;
     ev.data.ptr = &sysp->_specialEventWakeup;
     code = epoll_ctl(sysp->_epFd, EPOLL_CTL_ADD, sysp->_readWakeupFd, &ev);

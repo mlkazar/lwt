@@ -68,6 +68,7 @@ class EpollSys {
     friend class EpollEvent;
  public:
     uint32_t _refCount;
+    pthread_t _pthread;    /* managing thread */ 
     ThreadMutex _lock;     /* protects all fields in this system and associated events */
     int _epFd;
     int _readWakeupFd;

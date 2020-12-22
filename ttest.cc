@@ -32,6 +32,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <string>
 
 #include "thread.h"
+#include "threadmutex.h"
 
 long long getus()
 {
@@ -135,6 +136,41 @@ PongThread::start() {
     }
 }
 
+class CreateSleep : public Thread {
+public:
+    ThreadMutex _lock;
+    ThreadCond _cv;
+    class Child : public Thread {
+    public:
+        ThreadMutex *_mutexp;
+        ThreadCond *_cvp;
+        Child(ThreadMutex *mutexp, ThreadCond *cvp) {
+            _mutexp = mutexp;
+            _cvp = cvp;
+        }
+
+        void *start() {
+            _mutexp->take();
+            _cvp->broadcast();
+            _mutexp->release();
+        }
+    };
+
+    CreateSleep() {
+        _cv.setMutex(&_lock);
+    }
+
+    void *start() {
+        Child *childp;
+        childp = new Child(&_lock, &_cv);
+
+        _lock.take();
+        childp->queue();
+        _cv.wait();
+        _lock.release();
+    }
+};
+
 int
 main(int argc, char **argv)
 {
@@ -142,7 +178,9 @@ main(int argc, char **argv)
     SpinLock tlock;
     long long startUs;
     PingPong *pingPongp;
-    static const int pingCount = 8;
+    CreateSleep *csleep;
+    void *junkp;
+    static const int pingCount = 10;
     
     if (argc<2) {
         printf("usage: ttest <count>\n");
@@ -172,9 +210,22 @@ main(int argc, char **argv)
     while(1) {
         if (main_doneCounter >= pingCount) {
             printf("All done\n");
-            _exit(0);
+            break;
         }
         sleep(1);
     }
+
+    printf("Starting timing test for thread create/delete pairs + joins\n");
+    startUs = getus();
+    for(i=0;i<main_maxCount;i++) {
+        csleep = new CreateSleep();
+        csleep->setJoinable();
+        csleep->queue();
+        csleep->join(&junkp);
+    }
+    printf("%d thread create/deletes %ld ns each\n",
+           (int) main_maxCount, (long) (getus() - startUs) * 1000 / main_maxCount);
+
+    _exit(0);
     return 0;
 }

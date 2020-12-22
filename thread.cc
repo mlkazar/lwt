@@ -158,7 +158,7 @@ Thread::exit(void *valuep)
     }
     else {
         /* non-joinable threads just self destruct */
-        printf("thread %p exiting\n", this);
+        // printf("thread %p exiting\n", this);
         _currentDispatcherp->_helper.queueItem(/* queue this guy */ NULL, /* delete */ this);
         sleep(&_globalThreadLock);
     }
