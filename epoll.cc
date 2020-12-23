@@ -28,12 +28,12 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 */
 
-EpollSys::EpollSys()
+EpollOne::EpollOne()
 {
     pthread_t junkId;
     int fds[2];
 
-    _refCount = 1;
+    _sysp = NULL;
     _epFd = epoll_create1(0);
     _pthreadActive = 1;
     _doShutdown = 0;
@@ -42,41 +42,49 @@ EpollSys::EpollSys()
     _readWakeupFd = fds[0];
     _writeWakeupFd = fds[1];
     _running = 1;
-    pthread_create(&junkId, NULL, &EpollSys::threadStart, this);
+}
+
+void
+EpollOne::init(EpollSys *sysp) {
+    pthread_t junkId;
+
+    _sysp = sysp;
+    pthread_create(&junkId, NULL, &EpollOne::threadStart, this);
 }
 
 /* The way that shutting down this code works is first, you close all the EpollEvent
  * objects, which drops their reference counts.  When they hit zero, they drop
- * *their* reference to the EpollSys object.  When the user then calls ::close on
- * the EpollSys object, it sets a flag in the sys object, wakes up the pthread,
+ * *their* reference to the EpollOne object.  When the user then calls ::close on
+ * the EpollOne object, it sets a flag in the sys object, wakes up the pthread,
  * which exits immediately after dropping the original reference count returned to
- * the user when the EpollSys was created.  When the reference count goes to 0,
- * the EpollSys object is finally freed.
+ * the user when the EpollOne was created.  When the reference count goes to 0,
+ * the EpollOne object is finally freed.
  */
 void *
-EpollSys::threadStart(void *argp)
+EpollOne::threadStart(void *argp)
 {
     int32_t code;
     int32_t evCount;
     epoll_event ev;
     EpollEvent *ep;
     EpollEvent *nep;
-    EpollSys *sysp = (EpollSys *) argp;
+    EpollOne *onep = (EpollOne *) argp;
     static const uint32_t nevents = 16;
     epoll_event localEvents[nevents];
     epoll_event *eventp;
     uint32_t i;
+    EpollSys *sysp = onep->_sysp;
     
     /* turn this pthread into a dispatcher for a dedicated thread, so we can
      * wait for thread locks correctly.
      */
     ThreadDispatcher::pthreadTop();
 
-    sysp->_pthread = pthread_self();
+    onep->_pthread = pthread_self();
 
     ev.events = EPOLLIN;
-    ev.data.ptr = &sysp->_specialEventWakeup;
-    code = epoll_ctl(sysp->_epFd, EPOLL_CTL_ADD, sysp->_readWakeupFd, &ev);
+    ev.data.ptr = &onep->_specialEventWakeup;
+    code = epoll_ctl(onep->_epFd, EPOLL_CTL_ADD, onep->_readWakeupFd, &ev);
     if (code < 0) {
         printf("epoll: add failed for initial pipe\n");
         osp_assert(0);
@@ -85,11 +93,11 @@ EpollSys::threadStart(void *argp)
     while(1) {
         /* collect updates */
         sysp->_lock.take();
-        for(ep = sysp->_addingEvents.head(); ep; ep = nep) {
+        for(ep = onep->_addingEvents.head(); ep; ep = nep) {
             nep = ep->_dqNextp;
             ev.events = EPOLLONESHOT | ((ep->_flags & EpollEvent::epollIn)? EPOLLIN : EPOLLOUT);
             ev.data.ptr = ep;
-            code = epoll_ctl(sysp->_epFd, EPOLL_CTL_ADD, ep->_fd, &ev);
+            code = epoll_ctl(onep->_epFd, EPOLL_CTL_ADD, ep->_fd, &ev);
             printf("EPOLL added ep=%p fd=%d code=%d\n", ep, ep->_fd, code);
             if (code < 0) {
                 perror("epoll add");
@@ -97,17 +105,17 @@ EpollSys::threadStart(void *argp)
                 ep->_triggered = 1;
                 ep->_cv.broadcast();
             }
-            sysp->_addingEvents.remove(ep);
-            sysp->_activeEvents.append(ep);
+            onep->_addingEvents.remove(ep);
+            onep->_activeEvents.append(ep);
             ep->_inQueue = EpollEvent::inActiveQueue;
         }
 
-        for(ep = sysp->_removingEvents.head(); ep; ep = nep) {
+        for(ep = onep->_removingEvents.head(); ep; ep = nep) {
             nep = ep->_dqNextp;
             /* closing the file descriptor removes it from the epoll set,
              * and the event was put in this queue by close
              */
-            sysp->_removingEvents.remove(ep);
+            onep->_removingEvents.remove(ep);
             ep->_inQueue = EpollEvent::inRemovingQueue;
 
             /* this releases the original reference from the initial
@@ -119,12 +127,12 @@ EpollSys::threadStart(void *argp)
             ep->releaseNL();
         }
 
-        sysp->_running = 0;
+        onep->_running = 0;
 
         sysp->_lock.release();
         
         /* do the wait */
-        evCount = epoll_wait(sysp->_epFd, localEvents, nevents, -1);
+        evCount = epoll_wait(onep->_epFd, localEvents, nevents, -1);
         if (evCount < 0) {
             if (errno == EINTR)
                 continue;
@@ -132,19 +140,19 @@ EpollSys::threadStart(void *argp)
         }
 
         sysp->_lock.take();
-        sysp->_running = 0;
+        onep->_running = 0;
         for( i=0, eventp = localEvents;
              i<evCount;
              i++, eventp++) {
             ep = (EpollEvent *) eventp->data.ptr;
-            if ((uint8_t *) ep != &sysp->_specialEventWakeup) {
+            if ((uint8_t *) ep != &onep->_specialEventWakeup) {
                 ep->_triggered = 1;
                 ep->_cv.broadcast();
             }
             else {
                 /* read from the file descriptor */
                 uint8_t tc;
-                code = read(sysp->_readWakeupFd, &tc, 1);
+                code = read(onep->_readWakeupFd, &tc, 1);
             }
         }
         sysp->_lock.release();
@@ -160,8 +168,22 @@ EpollSys::releaseNL()
     }
 }
 
+#if 0
+int32_t
+EpollSys::addEvent(EpollEvent *ep) {
+    int32_t code;
+
+    if (ep->_flags & EpollEvent::epollIn)
+        code = _readOne.addEvent(ep);
+    else
+        code = _writeOne.addEvent(ep);
+
+    return code;
+}
+#endif
+
 void
-EpollSys::wakeThreadNL()
+EpollOne::wakeThreadNL()
 {
     int32_t code;
     uint8_t tc;
@@ -174,11 +196,13 @@ EpollSys::wakeThreadNL()
 }
 
 void
-EpollSys::close()
+EpollOne::close()
 {
     EpollEvent *ep;
     EpollEvent *nep;
-    _lock.take();
+
+    _sysp->_lock.take();
+
     for(ep=_activeEvents.head(); ep; ep=nep) {
         nep = ep->_dqNextp;
         _activeEvents.remove(ep);
@@ -192,7 +216,8 @@ EpollSys::close()
         ep->_inQueue = EpollEvent::inRemovingQueue;
     }
     wakeThreadNL();
-    _lock.release();
+
+    _sysp->_lock.release();
 }
 
 void
@@ -207,23 +232,23 @@ EpollEvent::reenableNL(Flags fl)
     ev.events = EPOLLONESHOT | ((_flags & EpollEvent::epollIn)? EPOLLIN : EPOLLOUT);
     ev.data.ptr = this;
     if (!_added) {
-        code = epoll_ctl(_sysp->_epFd, EPOLL_CTL_ADD, _fd, &ev);
+        code = epoll_ctl(_onep->_epFd, EPOLL_CTL_ADD, _fd, &ev);
         _added = 1;
     }
     else {
-        code = epoll_ctl(_sysp->_epFd, EPOLL_CTL_MOD, _fd, &ev);
+        code = epoll_ctl(_onep->_epFd, EPOLL_CTL_MOD, _fd, &ev);
     }
     if (code < 0) {
         perror("reenableNL");
     }
-    _sysp->wakeThreadNL();
+    _onep->wakeThreadNL();
 }
 
 void
 EpollEvent::releaseNL()
 {
-    osp_assert(_refCount > 0);
-    if (--_refCount == 0) {
+    osp_assert(_sysp->_refCount > 0);
+    if (--_sysp->_refCount == 0) {
         _sysp->releaseNL();
         _sysp = NULL;
         delete this;

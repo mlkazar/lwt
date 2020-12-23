@@ -31,7 +31,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  * connections.  The file descriptor doesn't have to be in
  * non-blocking mode.
  *
- * You start by creating an EpollSys object, which has an associated
+ * You start by creating an EpollOne object, which has an associated
  * pthread that does the actual waiting.  Then you create a new
  * EpollEvent for a file descriptor, and you call the wait method with
  * either epollIn or epollOut, to wait for either input to be
@@ -60,16 +60,16 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "thread.h"
 #include "threadmutex.h"
 
-class EpollSys;
+class EpollOne;
 class EpollEvent;
+class EpollSys;
 
 /* create one of these for each pthread you want doing the monitoring */
-class EpollSys {
+class EpollOne {
     friend class EpollEvent;
  public:
-    uint32_t _refCount;
+    EpollSys *_sysp;
     pthread_t _pthread;    /* managing thread */ 
-    ThreadMutex _lock;     /* protects all fields in this system and associated events */
     int _epFd;
     int _readWakeupFd;
     int _writeWakeupFd;
@@ -82,17 +82,32 @@ class EpollSys {
     dqueue<EpollEvent> _removingEvents;
     dqueue<EpollEvent> _addingEvents;
 
-    EpollSys();
-
-    int32_t addEvent(EpollEvent *ep);
+    EpollOne();
 
     static void *threadStart(void *p);
 
     void close();               /* does reference count release as well */
 
-    void releaseNL();
-
     void wakeThreadNL();
+
+    void init(EpollSys *sysp);
+};
+
+class EpollSys {
+    friend class EpollOne;
+    friend class EpollEvent;
+
+    uint32_t _refCount;
+    ThreadMutex _lock;
+
+    EpollOne _readOne;
+    EpollOne _writeOne;
+
+ public:
+    EpollSys() {
+        _readOne.init(this);
+        _writeOne.init(this);
+    }
 
     void hold() {
         _lock.take();
@@ -100,16 +115,23 @@ class EpollSys {
         _lock.release();
     }
 
+    void releaseNL();
+
     /* not sure this is useful */
     void release() {
         _lock.take();
         releaseNL();
         _lock.release();
     }
+
+    void close() {
+        _readOne.close();
+        _writeOne.close();
+    }
 };
 
 /* reference counting works as follows: users keep refcount to EpollEvent, and they're
- * freed whenever the count hits zero.  User keeps a reference to the EpollSys as well,
+ * freed whenever the count hits zero.  User keeps a reference to the EpollOne as well,
  * and each event also keeps a reference to the system.  The polling pthread also
  * keeps a long term reference to the system.
  *
@@ -127,7 +149,9 @@ class EpollSys {
  * at different times.
  */
 class EpollEvent {
+    friend class EpollOne;
     friend class EpollSys;
+
  public:
     /* these are bitmasks */
     enum Flags {
@@ -146,9 +170,10 @@ class EpollEvent {
     int _fd;
     uint32_t _refCount;
     uint8_t _triggered;
-    uint8_t _active;            /* added to epoll kernel queue */
-    uint8_t _failed;
     uint8_t _added;             /* first time must call add instead */
+    uint8_t _failed;            /* for debugging, tells us event couldn't be added */
+    uint8_t _closed;
+    uint8_t _isWrite;
     Flags _flags;               /* flags of last type we waited for */
 
     /* which queue are we in */
@@ -159,36 +184,39 @@ class EpollEvent {
     EpollEvent *_dqPrevp;
  private:
 
+    EpollOne *_onep;
     EpollSys *_sysp;
     ThreadCond _cv;
 
  public:
-    EpollEvent(EpollSys *sysp, int fd) {
+    EpollEvent(EpollSys *sysp, int fd, int isWrite) {
         _fd = fd;
         _refCount = 1;
         _triggered = 0;
-        _active = 0;
         _added = 0;
+        _isWrite = isWrite;
         _failed = 0;
         _flags = (Flags) 0;
         _sysp = sysp;
+        _onep = (isWrite? &sysp->_writeOne : &sysp->_readOne);
         _sysp->hold();
-        _cv.setMutex(&sysp->_lock);
+        _cv.setMutex(&_sysp->_lock);
         _dqPrevp = NULL;
         _dqNextp = NULL;
         _inQueue = inNoQueue;
+        _closed = 0;
     }
 
     void removeFromQueues() {
-        EpollSys *sysp = _sysp;
+        EpollOne *onep = _onep;
         if (_inQueue == inAddingQueue) {
-            sysp->_addingEvents.remove(this);
+            onep->_addingEvents.remove(this);
         }
         else if (_inQueue == inRemovingQueue) {
-            sysp->_removingEvents.remove(this);
+            onep->_removingEvents.remove(this);
         }
         else if (_inQueue == inActiveQueue) {
-            sysp->_activeEvents.remove(this);
+            onep->_activeEvents.remove(this);
         }
         _inQueue = inNoQueue;
     }
@@ -208,7 +236,7 @@ class EpollEvent {
         /* reenable or add it the first time */
         reenableNL(fl);
 
-        while ( !_triggered) {
+        while ( !_triggered && !_closed) {
             _cv.wait(&_sysp->_lock);
         }
         _triggered = 0;
@@ -218,8 +246,10 @@ class EpollEvent {
 
     void closeNL() {
         removeFromQueues();
-        _sysp->_removingEvents.append(this);
+        _onep->_removingEvents.append(this);
         _inQueue = inRemovingQueue;
+        _closed = 1;
+        _cv.broadcast();
         /* we don't call wakeThreadNL here since this might be called
          * from the event thread itself.  If you need to, call it yourself.
          */
@@ -233,7 +263,7 @@ class EpollEvent {
          */
         _sysp->_lock.take();
         closeNL();
-        _sysp->wakeThreadNL();
+        _onep->wakeThreadNL();
         _sysp->_lock.release();
     }
 
@@ -249,15 +279,6 @@ class EpollEvent {
     void releaseNL();
 
     void reenableNL(Flags fl);
-
-#if 0
-    void reenable() {
-        _sysp->_lock.take();
-        reenableNL();
-        _sysp->_lock.release();
-    }
-#endif
-
 };
 
 #endif /*  _EPOLL_H_ENV__ */

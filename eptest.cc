@@ -98,7 +98,7 @@ PipeTest::PipeReader::start() {
     int32_t code;
     char tc;
 
-    _eventp = new EpollEvent(_sysp, _fd);
+    _eventp = new EpollEvent(_sysp, _fd, /* !isWrite */ 0);
     while(1) {
         _eventp->wait(EpollEvent::epollIn);
         code = read(_fd, &tc, 1);
@@ -115,7 +115,7 @@ PipeTest::PipeWriter::start() {
     uint32_t count;
     int32_t code;
 
-    _eventp = new EpollEvent(_sysp, _fd);
+    _eventp = new EpollEvent(_sysp, _fd, /* isWrite */ 1);
     maxCount = _ptestp->getIterations();
     count  = 0;
     while(count < maxCount) {
