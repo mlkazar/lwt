@@ -153,6 +153,7 @@ public:
             _mutexp->take();
             _cvp->broadcast();
             _mutexp->release();
+            return NULL;
         }
     };
 
@@ -168,6 +169,7 @@ public:
         childp->queue();
         _cv.wait();
         _lock.release();
+        return NULL;
     }
 };
 

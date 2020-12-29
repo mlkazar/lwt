@@ -377,6 +377,7 @@ ThreadDispatcher::dispatcherTop(void *ctx)
     pthread_setspecific(_dispatcherKey, disp);
     disp->_idle.resume(); /* idle thread switches to new stack and then calls the dispatcher */
     printf("Error: dispatcher %p top level return!!\n", disp);
+    return NULL;
 }
 
 /* static */ void

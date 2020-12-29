@@ -31,6 +31,8 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #define osp_assert(x) assert(x)
 
+#include "ospnew.h"
+
 extern long long osp_getUs();
 
 extern long long osp_getMs();

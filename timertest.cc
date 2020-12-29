@@ -81,6 +81,7 @@ public:
             _testp->_lock.release();
             printf("TimedWait test: sleeper done %d iterations with %d wakeups due to timeout\n",
                    _testp->_count, timeouts);
+            return NULL;
         }
     };
 
@@ -100,6 +101,7 @@ public:
                 ThreadTimer::sleep(10);
             }
             printf("TimedWait test: %d wakeups done\n", _testp->_count);
+            return NULL;
         };
     };
 
@@ -126,6 +128,7 @@ public:
         _waker.join(&junkp);
         _sleeper.join(&junkp);
         printf("TimedTest done\n");
+        return NULL;
     }
 
     TimedTest() {
@@ -246,6 +249,7 @@ public:
             }   
         }
         _lock.release();
+        return NULL;
     }
 };
 
@@ -255,8 +259,6 @@ ThreadMutex TimerTest::_lock;
 int
 main(int argc, char **argv)
 {
-    long long us;
-    int code;
     TimerTest *testp;
     SleepTest *sleepTestp;
     CancelTest *cancelTestp;

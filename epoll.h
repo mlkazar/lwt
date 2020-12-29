@@ -233,10 +233,12 @@ class EpollEvent {
             return 0;
         }
 
-        /* reenable or add it the first time */
-        reenableNL(fl);
-
         while ( !_triggered && !_closed) {
+            /* reenable or add it the first time; we do this each time we
+             * block, in case another thread turned off triggered
+             */
+            reenableNL(fl);
+
             _cv.wait(&_sysp->_lock);
         }
         _triggered = 0;

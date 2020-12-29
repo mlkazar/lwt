@@ -30,7 +30,6 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 EpollOne::EpollOne()
 {
-    pthread_t junkId;
     int fds[2];
 
     _sysp = NULL;
@@ -72,7 +71,7 @@ EpollOne::threadStart(void *argp)
     static const uint32_t nevents = 16;
     epoll_event localEvents[nevents];
     epoll_event *eventp;
-    uint32_t i;
+    int32_t i;
     EpollSys *sysp = onep->_sysp;
     
     /* turn this pthread into a dispatcher for a dedicated thread, so we can
@@ -185,13 +184,12 @@ EpollSys::addEvent(EpollEvent *ep) {
 void
 EpollOne::wakeThreadNL()
 {
-    int32_t code;
     uint8_t tc;
 
     if (!_running) {
         _running = 1;
         tc = 'x';
-        code = write(_writeWakeupFd, &tc, 1);
+        write(_writeWakeupFd, &tc, 1);
     }
 }
 

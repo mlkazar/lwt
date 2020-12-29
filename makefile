@@ -2,7 +2,9 @@ all: libthread.a ttest mtest eptest timertest
 
 DESTDIR=../export
 
-INCLS=thread.h threadmutex.h osp.h dqueue.h epoll.h threadtimer.h
+INCLS=thread.h threadmutex.h osp.h dqueue.h epoll.h threadtimer.h spinlock.h ospnew.h
+
+CFLAGS=-g -Wall
 
 install: all
 	-mkdir $(DESTDIR)/include $(DESTDIR)/lib $(DESTDIR)/bin
@@ -24,41 +26,41 @@ setcontext.o: setcontext.s
 	-rm setcontext-temp.s
 
 osp.o: osp.cc $(INCLS)
-	g++ -c -g osp.cc -pthread
+	g++ -c $(CFLAGS) osp.cc -pthread
 
 ospnew.o: ospnew.cc $(INCLS)
-	g++ -c -g ospnew.cc -pthread
+	g++ -c $(CFLAGS) ospnew.cc -pthread
 
 threadtimer.o: threadtimer.cc $(INCLS)
-	g++ -c -g threadtimer.cc -pthread
+	g++ -c $(CFLAGS) threadtimer.cc -pthread
 
 threadmutex.o: threadmutex.cc $(INCLS)
-	g++ -c -g threadmutex.cc -pthread
+	g++ -c $(CFLAGS) threadmutex.cc -pthread
 
 libthread.a: epoll.o thread.o getcontext.o setcontext.o threadmutex.o osp.o ospnew.o threadtimer.o
 	ar cr libthread.a epoll.o thread.o getcontext.o setcontext.o threadmutex.o osp.o ospnew.o threadtimer.o
 	ranlib libthread.a
 
 thread.o: thread.cc $(INCLS)
-	g++ -c -g -o thread.o thread.cc -pthread
+	g++ -c $(CFLAGS) -o thread.o thread.cc -pthread
 
 epoll.o: epoll.cc $(INCLS)
-	g++ -c -g -o epoll.o epoll.cc -pthread
+	g++ -c $(CFLAGS) -o epoll.o epoll.cc -pthread
 
 ttest.o: ttest.cc $(INCLS)
-	g++ -c -g -o ttest.o ttest.cc -pthread
+	g++ -c $(CFLAGS) -o ttest.o ttest.cc -pthread
 
 ttest: ttest.o libthread.a
 	g++ -g -o ttest ttest.o libthread.a -pthread
 
 timertest.o: timertest.cc $(INCLS)
-	g++ -c -g -o timertest.o timertest.cc -pthread
+	g++ -c $(CFLAGS) -o timertest.o timertest.cc -pthread
 
 mtest.o: mtest.cc $(INCLS)
-	g++ -c -g -o mtest.o mtest.cc -pthread
+	g++ -c $(CFLAGS) -o mtest.o mtest.cc -pthread
 
 eptest.o: eptest.cc $(INCLS)
-	g++ -c -g -o eptest.o eptest.cc -pthread
+	g++ -c $(CFLAGS) -o eptest.o eptest.cc -pthread
 
 mtest: mtest.o libthread.a
 	g++ -g -o mtest mtest.o libthread.a -pthread

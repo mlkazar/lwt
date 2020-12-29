@@ -74,8 +74,7 @@ public:
     }
 
     PipeTest(EpollSys *sysp, uint32_t iterations){ 
-        int32_t code;
-        code = pipe(_pipeFds);
+        pipe(_pipeFds);
         _iterations = iterations;
         _sysp = sysp;
 
@@ -90,6 +89,7 @@ public:
         _readerThreadp->join(NULL);
         printf("PipeTest %p done\n", this);
         delete _readerThreadp;
+        return NULL;
     }
 };
 
@@ -106,6 +106,7 @@ PipeTest::PipeReader::start() {
             break;
         }
     }
+    return NULL;
 }
 
 void *
@@ -128,6 +129,7 @@ PipeTest::PipeWriter::start() {
     }
     _eventp->close();
     close(_fd);
+    return NULL;
 }
 
 int

@@ -121,7 +121,7 @@ class ThreadMutexDetect {
 
     void displayTrace();
 
-    int sweepFrom(Thread *threadp, int sweepIx);
+    int sweepFrom(Thread *threadp, uint32_t sweepIx);
     
     int checkForDeadlocks();
 

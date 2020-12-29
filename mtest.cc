@@ -113,6 +113,7 @@ JoinA::start()
 {
     delayRand(100000);
     Thread::exit(_joinp + _ix);
+    return NULL;
 }
 
 void *
@@ -232,6 +233,7 @@ public:
             _absp[i]->queue();
             _basp[i]->queue();
         }
+        return NULL;
     };
 
     long long getSpins() {
@@ -243,9 +245,6 @@ public:
 void *
 Deadlock::BAThread::start() 
 {
-    int spins;
-    int i;
-            
     while(1) {
         _deadlockp->_mutexB.take();
         _deadlockp->_mutexA.take();
@@ -262,9 +261,6 @@ Deadlock::BAThread::start()
 void *
 Deadlock::ABThread::start() 
 {
-    int spins;
-    int i;
-            
     while(1) {
         _deadlockp->_mutexA.take();
         _deadlockp->_mutexB.take();
@@ -467,9 +463,6 @@ join()
 int
 main(int argc, char **argv)
 {
-    long long us;
-    int code;
-    
     if (argc<2) {
         printf("usage: mtest <testname> <count>\n");
         printf("usage: testname = {basic,deadlock,join}\n");

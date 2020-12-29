@@ -137,7 +137,7 @@ ThreadMutexDetect::checkForDeadlocks()
 {
     Thread *threadp;
     ThreadEntry *ep;
-    int sweepIx = 0;
+    uint32_t sweepIx = 0;
     int didAny = 0;
     int allStopped;
 
@@ -174,7 +174,7 @@ ThreadMutexDetect::checkForDeadlocks()
  * already visited it.
  */
 int
-ThreadMutexDetect::sweepFrom(Thread *threadp, int sweepIx)
+ThreadMutexDetect::sweepFrom(Thread *threadp, uint32_t sweepIx)
 {
     ThreadMutex *mutexp;
     int rcode;

@@ -63,7 +63,7 @@ ThreadTimer::timerManager(void *parmp)
     ThreadTimer *timerp;
     struct pollfd pipeReadEvent;
     int32_t code;
-    long long now;
+    unsigned long long now;
     long long sleepMs;
 
     ThreadDispatcher::pthreadTop();
@@ -167,6 +167,7 @@ ThreadTimer::cancel()
         release();
     }
     pthread_mutex_unlock(&_timerMutex);
+    return 0;
 }
 
 /* static */ void
