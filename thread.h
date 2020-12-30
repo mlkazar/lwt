@@ -245,6 +245,10 @@ class Thread {
 
     static Thread *getCurrent();
 
+    static uint32_t getDefaultStackSize() {
+        return _defaultStackSize;
+    }
+
     void exit(void *exitCodep);
 
     void setName(std::string name) {
@@ -253,7 +257,7 @@ class Thread {
 
     int32_t join(void **ptrpp);
 
-    static void setTrackStackUsage(int trackStackUsage) {
+    static void setTrackStackUsage(int trackStackUsage = 1) {
         _trackStackUsage = trackStackUsage;
     }
 

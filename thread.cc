@@ -59,6 +59,8 @@ Thread::init(std::string name, uint32_t stackSize)
 {
     if (stackSize == 0)
         _stackSize = _defaultStackSize;
+    else
+        _stackSize = stackSize;
     _goingToSleep = 0;
     _marked = 0;
     _globalThreadLock.take();
