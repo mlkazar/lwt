@@ -111,6 +111,8 @@ class Thread {
     static dqueue<ThreadEntry> _allThreads;
     static dqueue<ThreadEntry> _joinThreads;
     static SpinLock _globalThreadLock;
+    static uint32_t _defaultStackSize;
+    static int _trackStackUsage;
 
     /* for when thread is blocked, or when it is in a run queue, these pointers are
      * used.
@@ -126,7 +128,7 @@ class Thread {
      */
     ucontext_t _ctx;
 
-    /* everything BEFORE this point is tracked in gdb, i.e. there's a structure in gdb
+    /* EVERYTHING BEFORE THIS POINT IS TRACKED IN GDB, i.e. there's a structure in gdb
      * labeled kazar_thread that matches the earlier parts of this structure,
      * so that gdb can read the thread and setup a copy of the registers for 
      * debugging.
@@ -153,6 +155,10 @@ class Thread {
      * so normal round robin threads never get queued to it.
      */
     ThreadDispatcher *_wiredDispatcherp;
+
+    /* pointer to base of stack, and count */
+    uint32_t _stackSize;
+    char *_stackp;
 
  private:
     /* used by getcontext to differentiate between when the dispatcher calls it to
@@ -193,12 +199,12 @@ class Thread {
     static void ctxStart(unsigned int p1, unsigned int p2);
 
  public:
-    Thread(std::string name) {
-        init(name);
+    Thread(std::string name, uint32_t stackSize=0) {
+        init(name, stackSize);
     }
 
-    Thread() {
-        init("[None]");
+    Thread(uint32_t stackSize=0) {
+        init("[None]", stackSize);
     }
 
     virtual ~Thread();
@@ -247,9 +253,15 @@ class Thread {
 
     int32_t join(void **ptrpp);
 
+    static void setTrackStackUsage(int trackStackUsage) {
+        _trackStackUsage = trackStackUsage;
+    }
+
+    static void displayStackUsage();
+
  private:
     /* internal function used in constructing a task */
-    void init(std::string name);
+    void init(std::string name, uint32_t stackSize);
 
     void resume();
 };
@@ -264,7 +276,7 @@ class ThreadIdle : public Thread {
 
     void *start();
 
-    ThreadIdle() {
+     ThreadIdle() : Thread("Idle thread") {
         _userLockToReleasep = NULL;
     }
 
@@ -284,8 +296,14 @@ class ThreadMain : public Thread {
         osp_assert(0);
     }
 
+ public:
+
     /* overridden to place the thread back in the wired dispatcher's run queue */
     void queue();
+
+    ThreadMain(std::string name) : Thread(name) {
+        return;
+    }
 };
 
 /* the items in the helper queue are protected by the globalThreadLock */
@@ -308,7 +326,7 @@ class ThreadHelper : public Thread {
     dqueue<ThreadHelperItem> _items;
     uint8_t _running;
 
-    ThreadHelper() {
+     ThreadHelper() : Thread ("Thread helper") {
         _running = 0;
     }
 
@@ -426,7 +444,7 @@ class ThreadDispatcher {
 
     static int pausedAllDispatching();
 
-    static void pthreadTop();
+    static void pthreadTop(const char *namep = 0);
 };
 
 #endif /* __THREAD_H_ENV__ */ 

@@ -157,7 +157,7 @@ public:
         }
     };
 
-    CreateSleep() {
+    CreateSleep() : Thread("SleepThread") {
         _cv.setMutex(&_lock);
     }
 
@@ -228,6 +228,7 @@ main(int argc, char **argv)
     printf("%d thread create/deletes %ld ns each\n",
            (int) main_maxCount, (long) (getus() - startUs) * 1000 / main_maxCount);
 
+    Thread::displayStackUsage();
     _exit(0);
     return 0;
 }

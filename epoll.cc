@@ -77,7 +77,7 @@ EpollOne::threadStart(void *argp)
     /* turn this pthread into a dispatcher for a dedicated thread, so we can
      * wait for thread locks correctly.
      */
-    ThreadDispatcher::pthreadTop();
+    ThreadDispatcher::pthreadTop("Epoll");
 
     onep->_pthread = pthread_self();
 

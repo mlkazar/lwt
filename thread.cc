@@ -29,6 +29,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <sys/time.h>
 #include <stdio.h>
 #include <assert.h>
+#include <string.h>
 
 #include "thread.h"
 
@@ -45,6 +46,8 @@ uint16_t ThreadDispatcher::_dispatcherCount;
 SpinLock Thread::_globalThreadLock;
 dqueue<ThreadEntry> Thread::_allThreads;
 dqueue<ThreadEntry> Thread::_joinThreads;
+uint32_t Thread::_defaultStackSize = 128*1024;
+int Thread::_trackStackUsage = 0;
 
 ThreadMon *ThreadMon::_monp = 0;
 
@@ -52,10 +55,10 @@ ThreadMon *ThreadMon::_monp = 0;
 
 /* internal function doing some of the initialization of a thread */
 void
-Thread::init(std::string name)
+Thread::init(std::string name, uint32_t stackSize)
 {
-    static const long memSize = 1024*1024;
-
+    if (stackSize == 0)
+        _stackSize = _defaultStackSize;
     _goingToSleep = 0;
     _marked = 0;
     _globalThreadLock.take();
@@ -71,11 +74,14 @@ Thread::init(std::string name)
     _exitValuep = NULL;
     _exited = 0;
     _name = name;
+    _stackp = (char *) malloc(_stackSize);
+    if (_trackStackUsage)
+        memset(_stackp, 0x7A, _stackSize);
 
     GETCONTEXT(&_ctx);
     _ctx.uc_link = NULL;
-    _ctx.uc_stack.ss_sp = malloc(memSize);
-    _ctx.uc_stack.ss_size = memSize;
+    _ctx.uc_stack.ss_sp = _stackp;
+    _ctx.uc_stack.ss_size = _stackSize;
     _ctx.uc_stack.ss_flags = 0;
 #if THREAD_PTR_FITS_IN_INT
     makecontext(&_ctx, (void (*)()) &ctxStart, 
@@ -198,6 +204,31 @@ Thread::join(void **ptrpp)
         *ptrpp = _exitValuep;
 
     return 0;
+}
+
+void
+Thread::displayStackUsage()
+{
+    ThreadEntry *entryp;
+    Thread *threadp;
+    uint32_t bytesUsed;
+    uint32_t i;
+    char *tp;
+
+    if( _trackStackUsage) {
+        for(entryp = _allThreads.head(); entryp; entryp=entryp->_dqNextp) {
+            threadp = entryp->_threadp;
+            for(i=0, tp=threadp->_stackp; i<threadp->_stackSize; i++, tp++)
+                if (*tp != 0x7a)
+                    break;
+            bytesUsed = threadp->_stackSize - i;
+            printf("Thread %s used %d bytes of its %d bytes\n",
+                   threadp->_name.c_str(), bytesUsed, threadp->_stackSize);
+        }
+    }
+    else {
+        printf("Stack usage not being tracked.\n");
+    }
 }
 
 /* internal; called to resume a thread, or start it if it has never been run before */
@@ -381,10 +412,11 @@ ThreadDispatcher::dispatcherTop(void *ctx)
 }
 
 /* static */ void
-ThreadDispatcher::pthreadTop()
+ThreadDispatcher::pthreadTop(const char *namep)
 {
     ThreadDispatcher *mainDisp;
     Thread *mainThreadp;
+    std::string name;
 
     /* create a special dispatcher for a pthread, so we can do
      * threadmutex operations from this thread without having to queue
@@ -392,7 +424,11 @@ ThreadDispatcher::pthreadTop()
      */
     mainDisp = new ThreadDispatcher(1);
     pthread_setspecific(_dispatcherKey, mainDisp);
-    mainThreadp = new ThreadMain();
+    if (namep)
+        name = std::string(namep);
+    else
+        name = "Pthread top";
+    mainThreadp = new ThreadMain(name);
 
     /* make it look like this dispatcher dispatched this thread; set
      * the wiredDispatcher field so that we always queue this to the
@@ -426,7 +462,7 @@ ThreadDispatcher::setup(uint16_t ndispatchers)
         pthread_create(&junk, NULL, dispatcherTop, _allDispatchers[i]);
     }
 
-    pthreadTop();
+    pthreadTop("First thread");
 }
 
 /* Internal constructor to create a new dispatcher */
