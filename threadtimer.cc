@@ -109,8 +109,10 @@ ThreadTimer::timerManager(void *parmp)
         pipeReadEvent.revents = 0;
         code = poll(&pipeReadEvent, 1, sleepMs);
         if (code < 0) {
-            perror("timerThreads poll");
-            assert(0);
+            if (errno != EINTR) {
+                perror("timerThreads poll");
+                assert(0);
+            }
         }
         else if (code > 0) {
             /* this is a wakeup event, so read the pipe */

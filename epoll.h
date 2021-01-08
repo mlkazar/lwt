@@ -80,7 +80,6 @@ class EpollOne {
     uint8_t _running;
     dqueue<EpollEvent> _activeEvents;
     dqueue<EpollEvent> _removingEvents;
-    dqueue<EpollEvent> _addingEvents;
 
     EpollOne();
 
@@ -130,15 +129,16 @@ class EpollSys {
     }
 };
 
-/* reference counting works as follows: users keep refcount to EpollEvent, and they're
- * freed whenever the count hits zero.  User keeps a reference to the EpollOne as well,
- * and each event also keeps a reference to the system.  The polling pthread also
- * keeps a long term reference to the system.
+/* reference counting works as follows: users keep refcount to
+ * EpollEvent, and they're freed whenever the count hits zero.  User
+ * keeps a reference to the EpollOne as well, and each event also
+ * keeps a reference to the system.  The polling pthread also keeps a
+ * long term reference to the system.
  *
- * When the user calls shutdown and subsequently drops their sys reference, the pthread
- * will terminate and drop its reference, and all events will trigger with a shutdown
- * indication.  Once all user references to events and sys are gone, all memory will
- * be freed.
+ * When the user calls shutdown and subsequently drops their sys
+ * reference, the pthread will terminate and drop its reference, and
+ * all events will trigger with a shutdown indication.  Once all user
+ * references to events and sys are gone, all memory will be freed.
  *
  * The way that events work is that they're disabled once they
  * trigger, until we reenable them.  The typical use is for the user
@@ -147,6 +147,12 @@ class EpollSys {
  * reenable, we want to reenable it automatically for them.  So, even
  * though triggered and mustReenable seem similar, they get turned off
  * at different times.
+ *
+ * Because EpollEvents are loaded into the kernel and may be returned
+ * by an epoll call, when closing an epoll event, we bump the
+ * reference count an extra time and put the event into a removing
+ * queue.  The event will be eventually released by the pthread when
+ * it is *not* in an epoll call.
  */
 class EpollEvent {
     friend class EpollOne;
@@ -161,9 +167,8 @@ class EpollEvent {
 
     enum QueueId {
         inNoQueue = 0,
-        inAddingQueue = 1,
+        inActiveQueue = 1,
         inRemovingQueue = 2,
-        inActiveQueue = 3
     };
 
  private:
@@ -209,10 +214,7 @@ class EpollEvent {
 
     void removeFromQueues() {
         EpollOne *onep = _onep;
-        if (_inQueue == inAddingQueue) {
-            onep->_addingEvents.remove(this);
-        }
-        else if (_inQueue == inRemovingQueue) {
+        if (_inQueue == inRemovingQueue) {
             onep->_removingEvents.remove(this);
         }
         else if (_inQueue == inActiveQueue) {
@@ -221,6 +223,7 @@ class EpollEvent {
         _inQueue = inNoQueue;
     }
 
+    /* note that this returns immediately if the event has been closed */
     int32_t wait(Flags fl) {
         _sysp->_lock.take();
 
@@ -246,16 +249,11 @@ class EpollEvent {
         return 0;
     }
 
-    void closeNL() {
-        removeFromQueues();
-        _onep->_removingEvents.append(this);
-        _inQueue = inRemovingQueue;
-        _closed = 1;
-        _cv.broadcast();
-        /* we don't call wakeThreadNL here since this might be called
-         * from the event thread itself.  If you need to, call it yourself.
-         */
+    void holdNL() {
+        _refCount++;
     }
+
+    void closeNL();
 
     void close() {
         /* move the event into the removal queue, drop our reference,
@@ -273,9 +271,11 @@ class EpollEvent {
      * should call close on it, which will move it to a queue for releasing.
      */
     void release() {
-        _sysp->_lock.take();
+        EpollSys *sysp = _sysp;
+
+        sysp->_lock.take();
         releaseNL();
-        _sysp->_lock.release();
+        sysp->_lock.release();
     };
 
     void releaseNL();

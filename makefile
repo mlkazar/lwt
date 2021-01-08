@@ -1,8 +1,8 @@
-all: libthread.a ttest mtest eptest timertest
+all: libthread.a ttest mtest eptest timertest pipetest
 
 DESTDIR=../export
 
-INCLS=thread.h threadmutex.h osp.h dqueue.h epoll.h threadtimer.h spinlock.h ospnew.h
+INCLS=thread.h threadmutex.h threadpipe.h osp.h dqueue.h epoll.h threadtimer.h spinlock.h ospnew.h
 
 CFLAGS=-g -Wall
 
@@ -12,7 +12,7 @@ install: all
 	cp -up libthread.a $(DESTDIR)/lib
 
 clean:
-	-rm -f ttest mtest eptest timertest *.o *.a *temp.s
+	-rm -f ttest mtest eptest timertest pipetest *.o *.a *temp.s
 	(cd alternatives; make clean)
 
 getcontext.o: getcontext.s
@@ -37,8 +37,11 @@ threadtimer.o: threadtimer.cc $(INCLS)
 threadmutex.o: threadmutex.cc $(INCLS)
 	g++ -c $(CFLAGS) threadmutex.cc -pthread
 
-libthread.a: epoll.o thread.o getcontext.o setcontext.o threadmutex.o osp.o ospnew.o threadtimer.o
-	ar cr libthread.a epoll.o thread.o getcontext.o setcontext.o threadmutex.o osp.o ospnew.o threadtimer.o
+threadpipe.o: threadpipe.cc $(INCLS)
+	g++ -c $(CFLAGS) threadpipe.cc -pthread
+
+libthread.a: epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o threadtimer.o
+	ar cr libthread.a epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o threadtimer.o
 	ranlib libthread.a
 
 thread.o: thread.cc $(INCLS)
@@ -56,6 +59,9 @@ ttest: ttest.o libthread.a
 timertest.o: timertest.cc $(INCLS)
 	g++ -c $(CFLAGS) -o timertest.o timertest.cc -pthread
 
+pipetest.o: pipetest.cc $(INCLS)
+	g++ -c $(CFLAGS) -o pipetest.o pipetest.cc -pthread
+
 mtest.o: mtest.cc $(INCLS)
 	g++ -c $(CFLAGS) -o mtest.o mtest.cc -pthread
 
@@ -70,3 +76,6 @@ eptest: eptest.o libthread.a
 
 timertest: timertest.o libthread.a
 	g++ -g -o timertest timertest.o libthread.a -pthread
+
+pipetest: pipetest.o libthread.a
+	g++ -g -o pipetest pipetest.o libthread.a -pthread

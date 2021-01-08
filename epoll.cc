@@ -92,22 +92,6 @@ EpollOne::threadStart(void *argp)
     while(1) {
         /* collect updates */
         sysp->_lock.take();
-        for(ep = onep->_addingEvents.head(); ep; ep = nep) {
-            nep = ep->_dqNextp;
-            ev.events = EPOLLONESHOT | ((ep->_flags & EpollEvent::epollIn)? EPOLLIN : EPOLLOUT);
-            ev.data.ptr = ep;
-            code = epoll_ctl(onep->_epFd, EPOLL_CTL_ADD, ep->_fd, &ev);
-            printf("EPOLL added ep=%p fd=%d code=%d\n", ep, ep->_fd, code);
-            if (code < 0) {
-                perror("epoll add");
-                ep->_failed = 1;
-                ep->_triggered = 1;
-                ep->_cv.broadcast();
-            }
-            onep->_addingEvents.remove(ep);
-            onep->_activeEvents.append(ep);
-            ep->_inQueue = EpollEvent::inActiveQueue;
-        }
 
         for(ep = onep->_removingEvents.head(); ep; ep = nep) {
             nep = ep->_dqNextp;
@@ -117,11 +101,11 @@ EpollOne::threadStart(void *argp)
             onep->_removingEvents.remove(ep);
             ep->_inQueue = EpollEvent::inRemovingQueue;
 
-            /* this releases the original reference from the initial
-             * event creation; we only go through this path after the
-             * user calls ::close on the EpollEvent, which resets the
-             * event and then triggers the removal of the event from
-             * the set of epoll events.
+            /* this releases the reference from the close operation;
+             * we only go through this path after the user calls
+             * ::close on the EpollEvent, which resets the event and
+             * then triggers the removal of the event from the set of
+             * epoll events.
              */
             ep->releaseNL();
         }
@@ -207,12 +191,6 @@ EpollOne::close()
         _removingEvents.append(ep);
         ep->_inQueue = EpollEvent::inRemovingQueue;
     }
-    for(ep=_addingEvents.head(); ep; ep=nep) {
-        nep = ep->_dqNextp;
-        _activeEvents.remove(ep);
-        _removingEvents.append(ep);
-        ep->_inQueue = EpollEvent::inRemovingQueue;
-    }
     wakeThreadNL();
 
     _sysp->_lock.release();
@@ -245,10 +223,31 @@ EpollEvent::reenableNL(Flags fl)
 void
 EpollEvent::releaseNL()
 {
-    osp_assert(_sysp->_refCount > 0);
-    if (--_sysp->_refCount == 0) {
+    osp_assert(_refCount > 0);
+    if (--_refCount == 0) {
         _sysp->releaseNL();
         _sysp = NULL;
         delete this;
     }
+}
+
+/* called with system lock held */
+void
+EpollEvent::closeNL() {
+    epoll_event ev;
+
+    if (_closed)
+        return;
+
+    epoll_ctl(_onep->_epFd, EPOLL_CTL_DEL, _fd, &ev);
+
+    removeFromQueues();
+    holdNL();       /* released when epoll thread removes event from removing queue */
+    _onep->_removingEvents.append(this);
+    _inQueue = inRemovingQueue;
+    _closed = 1;
+    _cv.broadcast();
+    /* we don't call wakeThreadNL here since this might be called
+     * from the event thread itself.  If you need to, call it yourself.
+     */
 }
