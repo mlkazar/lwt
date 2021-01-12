@@ -45,8 +45,8 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #elif defined(__x86_64__)
 
 #define THREAD_PTR_FITS_IN_INT    0
-#define SETCONTEXT(x) setcontext(x)
-#define GETCONTEXT(x) getcontext(x)
+#define SETCONTEXT(x) xsetcontext(x)
+#define GETCONTEXT(x) xgetcontext(x)
 #endif
 
 class Thread;

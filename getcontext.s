@@ -1,5 +1,7 @@
 /*
 
+This file was created by disassembling software covered by the Library GPL.
+
 Copyright 2016-2020 Cazamar Systems
 
 Permission is hereby granted, free of charge, to any person obtaining
@@ -65,4 +67,42 @@ xgetcontext:
 	.global xgetcontext
 	.text
 xgetcontext:	
+	/* basic registers */
+	movq	%rbx, 0x80(%rdi)
+	movq	%rbp, 0x78(%rdi)
+	movq	%r12, 0x48(%rdi)
+	movq	%r13, 0x50(%rdi)
+	movq	%r14, 0x58(%rdi)
+	movq	%r15, 0x60(%rdi)
+	movq	%rdi, 0x68(%rdi)
+	movq	%rsi, 0x70(%rdi)
+	movq	%rdx, 0x88(%rdi)
+	movq	%rcx, 0x98(%rdi)
+	movq	%r8, 0x28(%rdi)
+	movq	%r9, 0x30(%rdi)
+	movq	(%rsp), %rcx
+	movq	%rcx, 0xa8(%rdi)
+	leaq	8(%rsp), %rcx
+	movq	%rcx, 0xa0(%rdi)
+
+	/* deal with FP registers */
+	leaq	0x1a8(%rdi), %rcx
+	movq	%rcx, 0xe0(%rdi)
+	fnstenv	(%rcx)
+	fldenv	(%rcx)
+	stmxcsr	0x1c0(%rdi)
+
+	/* signal mask */
+#if 0
+	leaq	0x128(%rdi), %rdx
+	xorl	%esi,%esi
+	xorl	%edi,%edi
+	movl	$0x8,%r10d
+	movl	$0xe, %eax
+	syscall
+#endif
+
+	/* skip checking error */
+	xorl	%eax,%eax
+	ret
 #endif	

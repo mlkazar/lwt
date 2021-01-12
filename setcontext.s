@@ -1,5 +1,7 @@
 /*
 	
+This file was created by disassembling software covered by the Library GPL.
+
 Copyright 2016-2020 Cazamar Systems
 
 Permission is hereby granted, free of charge, to any person obtaining
@@ -48,4 +50,41 @@ xsetcontext:
 	.global xsetcontext
 	.text
 xsetcontext:	
+	pushq	%rdi
+	
+#if 0
+	/* set signal mask */
+	leaq	0x128(%rdi), %rsi
+	xorl	%edx, %edx
+	movl	$0x2, %edi
+	movl	$0x8, %r10d
+	movl	$0xe, %eax
+	syscall
+#endif
+
+	popq	%rdi
+	/* skip error checking */
+
+	/* restore floating point */
+	movq	0xe0(%rdi),%rcx
+	fldenv	(%rcx)
+	ldmxcsr	0x1c0(%rdi)
+
+	movq	0xa0(%rdi), %rsp
+	movq	0x80(%rdi), %rbx
+	movq	0x78(%rdi), %rbp
+	movq	0x48(%rdi), %r12
+	movq	0x50(%rdi), %r13
+	movq	0x58(%rdi), %r14
+	movq	0x60(%rdi), %r15
+	movq	0xa8(%rdi), %rcx
+	push	%rcx
+	movq	0x70(%rdi), %rsi
+	movq	0x88(%rdi), %rdx
+	movq	0x98(%rdi), %rcx
+	movq	0x28(%rdi), %r8
+	movq	0x30(%rdi), %r9
+	movq	0x68(%rdi), %rdi
+	xorl	%eax,%eax
+	ret
 #endif
