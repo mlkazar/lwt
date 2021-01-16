@@ -289,11 +289,11 @@ Deadlock::ABThread::start()
 class PingPong {
 public:
     static const int _maxBuffers = 3;
-    PingThread *_pingThreadp;
-    PongThread *_pongThreadp;
-    ThreadMutex _mutex;
-    ThreadCond _needSpaceCV;
-    ThreadCond _needDataCV;
+    void *_pingThreadp;
+    void *_pongThreadp;
+    pthread_mutex_t _mutex;
+    pthread_cond_t _needSpaceCV;
+    pthread_cond_t _needDataCV;
     int _haveData;
     long long _pingTotal;
     long long _pongTotal;
@@ -304,46 +304,32 @@ public:
 
         _haveData = 0;
 
-        _needSpaceCV.setMutex(&_mutex);
-        _needDataCV.setMutex(&_mutex);
+        pthread_mutex_init(&_mutex, NULL);
+        pthread_cond_init(&_needSpaceCV, NULL);
+        pthread_cond_init(&_needDataCV, NULL);
     }
 
     void init();
 };
 
-class PingThread : public Thread {
+class PingThread {
 public:
-    PingPong *_pp;
-    PingThread *_pingThreadp;
-
-    void *start();
-
-    void setParms(PingPong *pingPongp) {
-        _pingThreadp = this;
-        _pp = pingPongp;
-    }
+    static void *start(void *arg);
 };
 
-class PongThread : public Thread {
+class PongThread {
 public:
-    PingPong *_pp;
-    PongThread *_pongThreadp;
-
-    void *start();
-
-    void setParms(PingPong *pingPongp) {
-        _pongThreadp = this;
-        _pp = pingPongp;
-    }
+    static void *start(void *arg);
 };
 
 void *
-PingThread::start() {
+PingThread::start(void *argp) {
     long long startUs;
+    PingPong *pp = (PingPong *)argp;
 
     printf("ping starts\n");
     startUs = osp_getUs();
-    _pp->_mutex.take();
+    pthread_mutex_lock(&pp->_mutex);
     while(1) {
         /* supply data into the buffers */
 
@@ -351,52 +337,46 @@ PingThread::start() {
         if (main_counter++ > main_maxCount) {
             printf("%d thread round trips, %ld ns each\n",
                    (int) main_maxCount, (long) (osp_getUs() - startUs) * 1000 / main_maxCount);
-            printf("%lld microseconds lock wait total\n", _pp->_mutex.getWaitUs());
             printf("Done!\n");
-            _pp->_mutex.release();
-            return this;
+            pthread_mutex_unlock(&pp->_mutex);
+            return NULL;
         }
 
-        while(_pp->_haveData) {
+        while(pp->_haveData) {
             /* wait for space in the array */
-            _pp->_needSpaceCV.wait(&_pp->_mutex);
+            pthread_cond_wait(&pp->_needSpaceCV, &pp->_mutex);
         }
 
-        _pp->_haveData = 1;
-        _pp->_needDataCV.broadcast();
-
+        pp->_haveData = 1;
+        pthread_cond_broadcast(&pp->_needDataCV);
     }
 }
 
 void *
-PongThread::start() {
+PongThread::start(void *argp) {
+    PingPong *pp = (PingPong *) argp;
     printf("pong starts\n");
     
     /* consume */ 
-    _pp->_mutex.take();
+    pthread_mutex_lock(&pp->_mutex);
     while(1) {
-        while(!_pp->_haveData) {
-            _pp->_needDataCV.wait(&_pp->_mutex);
+        while(!pp->_haveData) {
+            pthread_cond_wait(&pp->_needDataCV, &pp->_mutex);
         }
 
         /* at this point we have data, so consume it */
-        _pp->_haveData = 0;
-        _pp->_needSpaceCV.broadcast();
+        pp->_haveData = 0;
+        pthread_cond_broadcast(&pp->_needSpaceCV);
     }
-    _pp->_mutex.release();
+    pthread_mutex_unlock(&pp->_mutex);
 }
 
 void
 PingPong::init() 
 {
-    _pingThreadp = new PingThread();
-    _pongThreadp = new PongThread();
-    _pingThreadp->setParms(this);
-    _pongThreadp->setParms(this);
-    
-    /* now start the ping and pong threads */
-    _pingThreadp->queue();
-    _pongThreadp->queue();
+    pthread_t junk;
+    pthread_create(&junk, NULL, &PingThread::start, this);
+    pthread_create(&junk, NULL, &PongThread::start, this);
 };
 
 void
@@ -404,6 +384,61 @@ deadlock()
 {
     main_deadlockp = new Deadlock();
     main_deadlockp->start();
+}
+
+class CountState {
+public:
+    pthread_mutex_t _lock;
+    pthread_cond_t _sleepWaiter;
+    pthread_cond_t _countWaiter;
+    uint32_t _counter;
+
+    CountState() {
+        _counter = 0;
+        pthread_mutex_init(&_lock, NULL);
+        pthread_cond_init(&_countWaiter, NULL);
+        pthread_cond_init(&_sleepWaiter, NULL);
+    }
+};
+
+void *countProc(void *argp)
+{
+    CountState *sp = (CountState *) argp;
+
+    pthread_mutex_lock(&sp->_lock);
+
+    sp->_counter++;
+    pthread_cond_broadcast(&sp->_countWaiter);
+
+    pthread_cond_wait(&sp->_sleepWaiter, &sp->_lock);
+
+    pthread_mutex_unlock(&sp->_lock);
+    return NULL;
+}
+
+void
+count()
+{
+    pthread_t junk;
+    uint32_t i;
+    CountState countState;
+    int32_t code;
+
+    for(i=0;i<main_maxCount;i++) {
+        code = pthread_create(&junk, NULL, &countProc, &countState);
+        if (code != 0) {
+            perror("thread create");
+            printf("failed after %d creates\n", i);
+            exit(0);
+        }
+    }
+    pthread_mutex_lock(&countState._lock);
+    while(countState._counter < main_maxCount) {
+        pthread_cond_wait(&countState._countWaiter, &countState._lock);
+    }
+    pthread_mutex_unlock(&countState._lock);
+    printf("Counter done\n");
+    exit(0);
 }
 
 void
@@ -427,71 +462,12 @@ join()
     main_joinp->queue();
 }
 
-class CountState {
-public:
-    ThreadMutex _lock;
-    ThreadCond _sleepWaiter;
-    ThreadCond _countWaiter;
-    uint32_t _counter;
-
-    CountState() {
-        _counter = 0;
-        _sleepWaiter.setMutex(&_lock);
-        _countWaiter.setMutex(&_lock);
-    }
-};
-
-class CountThread : public Thread {
-    CountState *_statep;
-public:
-    void *start();
-    void setState(CountState *statep) {
-        _statep = statep;
-    }
-};
-
-void *
-CountThread::start()
-{
-    _statep->_lock.take();
-
-    _statep->_counter++;
-    _statep->_countWaiter.broadcast();
-
-    _statep->_sleepWaiter.wait();
-
-    _statep->_lock.release();
-    return NULL;
-}
-
-void
-count()
-{
-    uint32_t i;
-    CountState countState;
-    CountThread *threadp;
-
-    for(i=0;i<main_maxCount;i++) {
-        threadp = new CountThread();
-        threadp->setState(&countState);
-        threadp->queue();
-    }
-
-    countState._lock.take();
-    while(countState._counter < main_maxCount) {
-        countState._countWaiter.wait();
-    }
-    countState._lock.release();
-    printf("Counter %d done\n", countState._counter);
-    exit(0);
-}
-
 int
 main(int argc, char **argv)
 {
     if (argc<2) {
         printf("usage: mtest <testname> <count>\n");
-        printf("usage: testname = {basic,deadlock,join}\n");
+        printf("usage: testname = {basic,count}\n");
         return -1;
     }
     

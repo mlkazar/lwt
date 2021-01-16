@@ -1,4 +1,4 @@
-all: libthread.a ttest mtest eptest timertest pipetest
+all: libthread.a ttest mtest eptest timertest pipetest ptest
 
 DESTDIR=../export
 
@@ -12,7 +12,7 @@ install: all
 	cp -up libthread.a $(DESTDIR)/lib
 
 clean:
-	-rm -f ttest mtest eptest timertest pipetest *.o *.a *temp.s
+	-rm -f ptest ttest mtest eptest timertest pipetest *.o *.a *temp.s
 	(cd alternatives; make clean)
 
 getcontext.o: getcontext.s
@@ -65,11 +65,17 @@ pipetest.o: pipetest.cc $(INCLS)
 mtest.o: mtest.cc $(INCLS)
 	g++ -c $(CFLAGS) -o mtest.o mtest.cc -pthread
 
+ptest.o: ptest.cc $(INCLS)
+	g++ -c $(CFLAGS) -o ptest.o ptest.cc -pthread
+
 eptest.o: eptest.cc $(INCLS)
 	g++ -c $(CFLAGS) -o eptest.o eptest.cc -pthread
 
 mtest: mtest.o libthread.a
 	g++ -g -o mtest mtest.o libthread.a -pthread
+
+ptest: ptest.o libthread.a
+	g++ -g -o ptest ptest.o libthread.a -pthread
 
 eptest: eptest.o libthread.a
 	g++ -g -o eptest eptest.o libthread.a -pthread
