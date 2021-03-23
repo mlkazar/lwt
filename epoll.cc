@@ -242,7 +242,6 @@ EpollEvent::closeNL() {
     epoll_ctl(_onep->_epFd, EPOLL_CTL_DEL, _fd, &ev);
 
     removeFromQueues();
-    holdNL();       /* released when epoll thread removes event from removing queue */
     _onep->_removingEvents.append(this);
     _inQueue = inRemovingQueue;
     _closed = 1;

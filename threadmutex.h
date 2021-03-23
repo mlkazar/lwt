@@ -99,6 +99,68 @@ class ThreadMutex {
     static void checkForDeadlocks();
 };
 
+/* typically optional structure for tracking owners for read-like shared locks */
+class ThreadLockOwner {
+    Thread *_threadp;
+    ThreadLockOwner *_dqNextp;
+    ThreadLockOwner *_dqPrevp;
+    uint32_t _lockMode; /* 1 is write, 0 is read, turn into enum if necessary */
+};
+
+class ThreadLockRw {
+ private:
+    SpinLock _lock;
+    uint32_t _readCount;
+    uint8_t _writeCount;        /* always 0 or 1 */
+    uint8_t _fairnessState;
+    dqueue<Thread> _readersWaiting;
+    dqueue<Thread> _writersWaiting;
+
+    /* optional -- you don't have to use the mode that saves this state, but you should */
+    dqueue<ThreadLockOwner> _ownerQueue;
+
+    Thread *_ownerp;
+
+    long long _waitUs;
+
+    /* the releaseNL call is made while holding _lock, and releases the mutex, and finally
+     * also releases the internal spin lock.  So, this call is just like release except
+     * the spin lock is held on entry, but left released on exit.
+     */
+    void releaseReadAndSleep(Thread *threadp, ThreadLockOwner *ownerp);
+
+    void releaseWriteAndSleep(Thread *threadp, ThreadLockOwner *ownerp);
+
+ public:
+
+    ThreadLockRw() {
+        _ownerp = NULL;
+        _waitUs = 0;
+        _fairnessState = 0;
+        _readCount = 0;
+        _writeCount = 0;
+        _ownerp = NULL;
+        _waitUs = 0;
+        
+    }
+    
+    void writeLock(ThreadLockOwner *ownerp=0);
+
+    int tryWrite(ThreadLockOwner *ownerp = 0);
+
+    void releaseWrite(ThreadLockOwner *ownerp);
+
+    void readLock(ThreadLockOwner *ownerp=0);
+
+    int tryRead(ThreadLockOwner *ownerp=0);
+
+    void releaseRead(ThreadLockOwner *ownerp=0);
+
+    long long getWaitUs() {
+        return _waitUs;
+    }
+};
+
 class ThreadMutexDetect {
  public:
     static const uint32_t _maxCycleDepth = 1024;

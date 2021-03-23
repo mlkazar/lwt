@@ -306,3 +306,37 @@ ThreadCond::broadcast()
         headp->queue();
     }
 }
+
+/********************************ThreadLockRw********************************/
+
+void
+ThreadLockRw::writeLock(ThreadLockOwner *ownerp)
+{
+}
+
+int
+ThreadLockRw::tryWrite(ThreadLockOwner *ownerp)
+{
+    return -1;
+}
+
+void
+ThreadLockRw::releaseWrite(ThreadLockOwner *ownerp)
+{
+}
+
+void
+ThreadLockRw::readLock(ThreadLockOwner *ownerp)
+{
+}
+
+int
+ThreadLockRw::tryRead(ThreadLockOwner *ownerp)
+{
+    return -1;
+}
+
+void
+ThreadLockRw::releaseRead(ThreadLockOwner *ownerp)
+{
+}

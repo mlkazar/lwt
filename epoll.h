@@ -31,7 +31,8 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  * connections.  The file descriptor doesn't have to be in
  * non-blocking mode.
  *
- * You start by creating an EpollOne object, which has an associated
+ * Internall, we start by creating an EpollOne object for the read
+ * side and the write side, each of which which has an associated
  * pthread that does the actual waiting.  Then you create a new
  * EpollEvent for a file descriptor, and you call the wait method with
  * either epollIn or epollOut, to wait for either input to be
@@ -42,10 +43,12 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  * While waiting, the Thread is sleeping, but the dispatcher pthread
  * runs other Threads while waiting.
  *
- * The epoll system uses level-triggered events.  When you call wait,
- * the event is reenabled, and the wait call returns if the event is
- * ready.  Once wait returns, the event is disabled, and won't show up
- * in the epoll results, until wait is called again.
+ * The epoll system uses level-triggered events, to eliminate the risk
+ * of missing an event.  These events get disabled after firing, and
+ * reenabled just before waiting again.  When you call wait, the event
+ * is reenabled, and the wait call returns if the event is ready.
+ * Once wait returns, the event is disabled, and won't show up in the
+ * epoll results, until wait is called again.
  *
  * When done with an epoll event, you call close on the event object;
  * this will release its reference and free the underlying storage.
@@ -64,7 +67,7 @@ class EpollOne;
 class EpollEvent;
 class EpollSys;
 
-/* create one of these for each pthread you want doing the monitoring */
+/* internal: creates one of these for each pthread doing the monitoring */
 class EpollOne {
     friend class EpollEvent;
  public:
@@ -104,6 +107,7 @@ class EpollSys {
 
  public:
     EpollSys() {
+        _refCount = 1;
         _readOne.init(this);
         _writeOne.init(this);
     }
@@ -131,7 +135,7 @@ class EpollSys {
 
 /* reference counting works as follows: users keep refcount to
  * EpollEvent, and they're freed whenever the count hits zero.  User
- * keeps a reference to the EpollOne as well, and each event also
+ * keeps a reference to the EpollSys as well, and each event also
  * keeps a reference to the system.  The polling pthread also keeps a
  * long term reference to the system.
  *
@@ -142,17 +146,18 @@ class EpollSys {
  *
  * The way that events work is that they're disabled once they
  * trigger, until we reenable them.  The typical use is for the user
- * to call wait, and then reenable the trigger once some data has been
- * consumed.  But if someone calls wait a second time forgetting to
- * reenable, we want to reenable it automatically for them.  So, even
- * though triggered and mustReenable seem similar, they get turned off
- * at different times.
+ * to call wait, then do something with the file descriptor and then
+ * go back to calling wait.  When wait is called with a disabled
+ * event, the event is reenabled.
  *
  * Because EpollEvents are loaded into the kernel and may be returned
  * by an epoll call, when closing an epoll event, we bump the
  * reference count an extra time and put the event into a removing
  * queue.  The event will be eventually released by the pthread when
- * it is *not* in an epoll call.
+ * it is *not* in an epoll call, thus ensuring we won't be surprised
+ * by the epoll event's address showing up from the kernel.  The last
+ * reference from the event won't be released until after the event
+ * has been removed by this pthread.
  */
 class EpollEvent {
     friend class EpollOne;
@@ -210,6 +215,10 @@ class EpollEvent {
         _dqNextp = NULL;
         _inQueue = inNoQueue;
         _closed = 0;
+
+        sysp->_lock.take();
+        sysp->_refCount++;
+        sysp->_lock.release();
     }
 
     void removeFromQueues() {
@@ -249,6 +258,14 @@ class EpollEvent {
         return 0;
     }
 
+    void hold() {
+        EpollSys *sysp = _sysp;
+
+        sysp->_lock.take();
+        holdNL();
+        sysp->_lock.release();
+    }
+
     void holdNL() {
         _refCount++;
     }
@@ -256,15 +273,22 @@ class EpollEvent {
     void closeNL();
 
     void close() {
+        EpollSys *sysp = _sysp;
+        EpollOne *onep = _onep;
+
         /* move the event into the removal queue, drop our reference,
          * and wakeup the event waiting thread to process the removal
          * queue and get rid of the thread's reference once we remove
          * the entry from the remove queue.
+         *
+         * Note that as soon as we've called closeNL, the event might
+         * be released and freed, so pull out fields we need from it
+         * first.
          */
-        _sysp->_lock.take();
+        sysp->_lock.take();
         closeNL();
-        _onep->wakeThreadNL();
-        _sysp->_lock.release();
+        onep->wakeThreadNL();
+        sysp->_lock.release();
     }
 
     /* drop a reference; this is for internal use only; owners of an event
