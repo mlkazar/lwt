@@ -99,27 +99,66 @@ class ThreadMutex {
     static void checkForDeadlocks();
 };
 
+class ThreadLockTracker;
+
 /* typically optional structure for tracking owners for read-like shared locks */
-class ThreadLockOwner {
+class ThreadLockTracker {
+ public:
+    enum LockMode {
+        _lockNone = 0,
+        _lockRead = 1,
+        _lockWrite = 2,
+        _lockUpgrade = 3
+    };
     Thread *_threadp;
-    ThreadLockOwner *_dqNextp;
-    ThreadLockOwner *_dqPrevp;
-    uint32_t _lockMode; /* 1 is write, 0 is read, turn into enum if necessary */
+    ThreadLockTracker *_dqNextp;
+    ThreadLockTracker *_dqPrevp;
+    LockMode _lockMode;         /* 1 is write, 0 is read, turn into enum if necessary */
 };
 
+/* Fair read write lock with upgrade potential.
+ *
+ * Readers increment readCount, writers increment writeCount, upgrade
+ * holders increment upgradeCount.  When upgrading to write, set
+ * upgradeToWrite and wait until readers goes to zero.  Note that you
+ * can't (of course) upgrade to write before actually obtaining the
+ * upgrade lock.
+ *
+ * When an upgrader is waiting to upgrade to write, they're in the
+ * writesWaiting queue, the upgradeToWrite flag is set, and _ownerp
+ * contains the thread that holds the upgrade/write lock.
+ */
 class ThreadLockRw {
  private:
+    /* the WaitReason values are stored in the thread's _sleepContext field */
+    enum WaitReason {
+        _reasonNone = 0,
+        _reasonRead = 1,        /* waiting to get a read lock */
+        _reasonWrite = 2,       /* waiting to get a write lock */
+        _reasonUpgrade = 3,     /* waiting to get an upgrade lock */
+        _reasonUpgradeToWrite = 4}; /* have upgrade lock, waiting to upgrade it to write */
+
     SpinLock _lock;
     uint32_t _readCount;
     uint8_t _writeCount;        /* always 0 or 1 */
-    uint8_t _fairnessState;
-    dqueue<Thread> _readersWaiting;
-    dqueue<Thread> _writersWaiting;
+    uint8_t _upgradeCount;      /* always 0 or 1 */
+    uint8_t _fairness;          /* true if last granted is write/upgradelock */
+    uint8_t _upgradeToWrite;    /* true iff upgrade to write is pending */
 
-    /* optional -- you don't have to use the mode that saves this state, but you should */
-    dqueue<ThreadLockOwner> _ownerQueue;
+    /* note that when a thread is waiting to upgrade to a write lock from an upgrade
+     * lock, it is also in the writesWaiting queue, but the sleepContext field
+     * in the waiting thread is set to _reasonUpgradeToWrite instead of
+     * reasonWrite.
+     */
+    dqueue<Thread> _readsWaiting;        /* queue of threads waiting for read locks */
+    dqueue<Thread> _writesWaiting;       /* queue of threads waiting for write locks */
+    dqueue<Thread> _upgradesWaiting;     /* queue of threads waiting for upgrade */
 
     Thread *_ownerp;
+
+ public:
+    /* optional -- you don't have to use the mode that saves this state, but you should */
+    dqueue<ThreadLockTracker> _trackerQueue;
 
     long long _waitUs;
 
@@ -127,34 +166,62 @@ class ThreadLockRw {
      * also releases the internal spin lock.  So, this call is just like release except
      * the spin lock is held on entry, but left released on exit.
      */
-    void releaseReadAndSleep(Thread *threadp, ThreadLockOwner *ownerp);
+    void releaseReadAndSleep(Thread *threadp, ThreadLockTracker *trackerp);
 
-    void releaseWriteAndSleep(Thread *threadp, ThreadLockOwner *ownerp);
+    void releaseWriteAndSleep(Thread *threadp, ThreadLockTracker *trackerp);
 
  public:
 
     ThreadLockRw() {
         _ownerp = NULL;
         _waitUs = 0;
-        _fairnessState = 0;
+        _fairness = 0;
         _readCount = 0;
         _writeCount = 0;
+        _upgradeCount = 0;
+        _upgradeToWrite = 0;
         _ownerp = NULL;
         _waitUs = 0;
         
     }
     
-    void writeLock(ThreadLockOwner *ownerp=0);
+    void lockWrite(ThreadLockTracker *trackerp=0);
 
-    int tryWrite(ThreadLockOwner *ownerp = 0);
+    int tryWrite(ThreadLockTracker *trackerp = 0);
 
-    void releaseWrite(ThreadLockOwner *ownerp);
+    void releaseWrite(ThreadLockTracker *trackerp);
 
-    void readLock(ThreadLockOwner *ownerp=0);
+    void lockRead(ThreadLockTracker *trackerp=0);
 
-    int tryRead(ThreadLockOwner *ownerp=0);
+    int tryRead(ThreadLockTracker *trackerp=0);
 
-    void releaseRead(ThreadLockOwner *ownerp=0);
+    void releaseRead(ThreadLockTracker *trackerp=0);
+
+    void lockUpgrade(ThreadLockTracker *trackerp=0);
+
+    void upgradeToWrite();
+
+    void releaseUpgrade(ThreadLockTracker *trackerp = 0);
+
+    void lockMode(ThreadLockTracker::LockMode mode, ThreadLockTracker *trackerp = 0) {
+        if (mode == ThreadLockTracker::_lockRead)
+            lockRead(trackerp);
+        else if (mode == ThreadLockTracker::_lockWrite)
+            lockWrite(trackerp);
+        else if (mode == ThreadLockTracker::_lockUpgrade)
+            lockUpgrade(trackerp);
+    }
+
+    void releaseMode(ThreadLockTracker::LockMode mode, ThreadLockTracker *trackerp = 0) {
+        if (mode == ThreadLockTracker::_lockRead)
+            releaseRead(trackerp);
+        else if (mode == ThreadLockTracker::_lockWrite)
+            releaseWrite(trackerp);
+        else if (mode == ThreadLockTracker::_lockUpgrade)
+            releaseUpgrade(trackerp);
+    }
+
+    void wakeNext();
 
     long long getWaitUs() {
         return _waitUs;

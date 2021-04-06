@@ -141,7 +141,13 @@ class Thread {
     /* the mutex that we're blocked on, or null if not blocked on a mutex */
     ThreadMutex *_blockingMutexp;
 
+    /* context used for deadlock detector */
     uint32_t _marked;
+
+    /* context available for use by task while it is asleep, so anyone waking us up
+     * knows why we slept.  Lets our read/write locks indicate how to wake them up,
+     */
+    uint64_t _sleepContext;
 
     /* set to the current dispatcher when a thread is loaded onto a processor */
     ThreadDispatcher *_currentDispatcherp; /* current dispatcher for running thread */

@@ -1,6 +1,6 @@
 /*
 
-Copyright 2016-2020 Cazamar Systems
+Copyright 2016-2021 Cazamar Systems
 
 Permission is hereby granted, free of charge, to any person obtaining
 a copy of this software and associated documentation files (the
@@ -309,34 +309,375 @@ ThreadCond::broadcast()
 
 /********************************ThreadLockRw********************************/
 
+/* There are several things to note in this code.
+ *
+ * First, it tries to be fair enough that no starvation can occur.
+ * Because readers can jump ahead of writers with a long enough queue
+ * of readers, we have a flag _fairness that is set to zero when a
+ * read or upgrade lock is granted, and which will prevent new read or
+ * upgrade locks being granted until a write lock is granted, if one
+ * is waiting.
+ *
+ * Second, threads are queued in separate queues for readers, writers
+ * and upgraders, but the threads in the write queue might be waiting
+ * for a write lock, or waiting to upgrade an upgradeable lock to a
+ * write lock.  In the latter case, to grant it, we need to atomicslly
+ * drop the upgrade lock and grant the write lock once the reader
+ * count has dropped to zero.  To distinguish between these cases, we
+ * use the thread's sleepContext field, storing the reason the thread
+ * blocked in that field.
+ */
+
+
+/* The way these locks work, we've already been granted the lock by the time we wake up */
 void
-ThreadLockRw::writeLock(ThreadLockOwner *ownerp)
+ThreadLockRw::lockWrite(ThreadLockTracker *trackerp)
 {
+    Thread *threadp = Thread::getCurrent();
+
+    _lock.take();
+    
+    if (_writeCount + _upgradeCount + _readCount > 0) {
+        _writesWaiting.append(threadp);
+        threadp->sleep(&_lock);
+        _lock.take();
+    }
+    else {
+        /* we can get the lock immediately, and w/o any fairness issues; we know
+         * there are no fairness issues because if anyone was waiting for a lock,
+         * someone would have to actually be holding the lock now, and no one is.
+         */
+        _fairness = 1; /* last granted lock was a write lock */
+        _ownerp = threadp;
+        _writeCount++;
+    }
+
+    /* record our ownership information, if any */
+    if (trackerp) {
+        trackerp->_lockMode = ThreadLockTracker::_lockWrite;
+        trackerp->_threadp = threadp;
+        _trackerQueue.append(trackerp);
+    }
+
+    _lock.release();
 }
 
+/* return 1 if got the lock.  TryLock calls ignore fairness */
 int
-ThreadLockRw::tryWrite(ThreadLockOwner *ownerp)
+ThreadLockRw::tryWrite(ThreadLockTracker *trackerp)
 {
-    return -1;
+    Thread *threadp = Thread::getCurrent();
+
+    _lock.take();
+    
+    if (_writeCount + _upgradeCount + _readCount > 0) {
+        _lock.release();
+        /* failure case */
+        return 0;
+    }
+    else {
+        /* we can get the lock immediately, and w/o any fairness issues; we know
+         * there are no fairness issues because if anyone was waiting for a lock,
+         * someone would have to actually be holding the lock now, and no one is.
+         */
+         _fairness = 1;
+         _ownerp = threadp;
+         _writeCount++;
+    }
+
+    /* record our ownership information, if any */
+    if (trackerp) {
+        trackerp->_lockMode = ThreadLockTracker::_lockWrite;
+        trackerp->_threadp = threadp;
+        _trackerQueue.append(trackerp);
+    }
+
+    _lock.release();
+    return 1;
+}
+
+/* must be called with the internal _lock held for the read/write lock */
+void
+ThreadLockRw::wakeNext()
+{
+    Thread *threadp;
+
+    /* check the upgrade request first */
+    if ( _upgradeCount > 0 && _readCount == 0 && _upgradeToWrite) {
+        assert(_ownerp);
+        _upgradeCount = 0;
+        _upgradeToWrite = 0;
+        _writeCount++;
+        _ownerp->queue();
+        /* the owner now has a write lock */
+        return;
+    }
+
+    if (_fairness == 1) {
+        /* last lock owner was a writer, so wakeup waiting readers and first
+         * upgrade lock, if any.  Start with the readers.
+         */
+        if (_writeCount == 0 && !_upgradeToWrite) {
+            while((threadp = _readsWaiting.pop()) != NULL) {
+                _readCount++;
+                _fairness = 0;
+                threadp->queue();
+            }
+        }
+
+        if (_ownerp == NULL) {
+            /* neither write or upgrade locked, see if we can grant an upgrade lock */
+            if ((threadp = _upgradesWaiting.pop()) != NULL) {
+                _ownerp = threadp;
+                _upgradeCount++;
+                _upgradeToWrite = 0;
+                _fairness = 0;
+                threadp->queue();
+                return;
+            }
+        }
+
+        threadp = _writesWaiting.head();
+        if ( threadp &&
+             (_readCount == 0 && _ownerp == NULL)) {
+            /* we have a writer waiting and no conflicts */
+            _ownerp = threadp;
+            _writesWaiting.remove(threadp);
+            _writeCount++;
+            threadp->queue();
+        } /* no readers */
+        return;
+    }
+    else {
+        /* last lock owner was some number of readers, and maybe an
+         * upgrader; must check writers first.  Note that the
+         * writesWaiting queue includes upgraders waiting to get a
+         * write lock.  If there are readers or upgraders waiting,
+         * don't run them unless a writer gets a shot first.
+         */
+        threadp = _writesWaiting.head();
+        if ( threadp &&
+             (_readCount == 0 && _ownerp == NULL)) {
+            /* we have a writer waiting and no conflicts */
+            _ownerp = threadp;
+            _writesWaiting.remove(threadp);
+            _writeCount++;
+            threadp->queue();
+            return;
+        } /* no readers */
+
+        /* if we get here, we have no waiting writers, so we can let
+         * readers / upgrades in, and those are all we actually have
+         * waiting.  Note that if we have a pending upgradeToWrite,
+         * we don't want to let any more readers in, to avoid starving
+         * the upgrade.
+         */
+        if (_writeCount > 0 || _upgradeToWrite)
+            return;
+        
+        while((threadp = _readsWaiting.pop()) != NULL) {
+            _readCount++;
+            _fairness = 0;
+            threadp->queue();
+        }
+
+        if (_ownerp == NULL &&
+            ((threadp = _upgradesWaiting.pop()) != NULL)) {
+            /* grant an upgrade lock */
+            _ownerp = threadp;
+            _upgradeCount++;
+            _upgradeToWrite = 0;
+            _fairness = 0;
+            threadp->queue();
+        }
+    }
 }
 
 void
-ThreadLockRw::releaseWrite(ThreadLockOwner *ownerp)
+ThreadLockRw::releaseWrite(ThreadLockTracker *trackerp)
 {
+    Thread *threadp = Thread::getCurrent();
+
+    _lock.take();
+    assert(_writeCount > 0 && _ownerp == threadp);
+
+    /* clear state indicating write locked */
+    _writeCount--;
+    _ownerp = NULL;
+
+    /* cleanup tracker tracking state, if any */
+    if (trackerp) {
+        _trackerQueue.remove(trackerp);
+    }
+
+    wakeNext();
+    _lock.release();
 }
 
 void
-ThreadLockRw::readLock(ThreadLockOwner *ownerp)
+ThreadLockRw::releaseUpgrade(ThreadLockTracker *trackerp)
 {
+    Thread *threadp = Thread::getCurrent();
+
+    _lock.take();
+    assert(_upgradeCount > 0 && _ownerp == threadp);
+
+    /* clear state indicating write locked */
+    _upgradeCount--;
+    _ownerp = NULL;
+
+    /* cleanup tracker tracking state, if any */
+    if (trackerp) {
+        _trackerQueue.remove(trackerp);
+    }
+
+    wakeNext();
+    _lock.release();
 }
 
+void
+ThreadLockRw::lockRead(ThreadLockTracker *trackerp)
+{
+    Thread *threadp;
+
+    threadp = Thread::getCurrent();
+
+    _lock.take();
+    
+    if (_fairness == 0) {
+        /* if we have a writer waiting, and we last granted readers,
+         * so we can't grant any more readers now.
+         */
+        if (_writesWaiting.head()) {
+            _readsWaiting.append(threadp);
+            threadp->sleep(&_lock);
+
+            if (trackerp) {
+                _lock.take();
+                _trackerQueue.append( trackerp);
+                _lock.release();
+            }
+            return;
+        }
+    }
+
+    /* no writers waiting, we can add a read lock */
+    if (_writeCount == 0) {
+        if (trackerp) {
+            _trackerQueue.append(trackerp);
+        }
+        _readCount++;
+        _lock.release();
+        return;
+    }
+
+    _readsWaiting.append(threadp);
+    threadp->sleep(&_lock);
+
+    if (trackerp) {
+        _lock.take();
+        _trackerQueue.append(trackerp);
+        _lock.release();
+    }
+    return;
+}
+
+/* return 1 if got locked */
 int
-ThreadLockRw::tryRead(ThreadLockOwner *ownerp)
+ThreadLockRw::tryRead(ThreadLockTracker *trackerp)
 {
-    return -1;
+    _lock.take();
+    if (_writeCount == 0) {
+        _readCount++;
+        if (trackerp)
+            _trackerQueue.append(trackerp);
+        _lock.release();
+        return 1;
+    }
+    else {
+        _lock.release();
+        return 0;
+    }
 }
 
 void
-ThreadLockRw::releaseRead(ThreadLockOwner *ownerp)
+ThreadLockRw::releaseRead(ThreadLockTracker *trackerp)
 {
+    _lock.take();
+    
+    assert(_readCount > 0);
+    _readCount--;
+    if (trackerp) {
+        _trackerQueue.remove( trackerp);
+    }
+
+    wakeNext();
+
+    _lock.release();
+}
+
+/* get an upgrade lock */
+void
+ThreadLockRw::lockUpgrade(ThreadLockTracker *trackerp)
+{
+    Thread *threadp;
+
+    threadp = Thread::getCurrent();
+
+    _lock.take();
+    if (_ownerp == NULL) {
+        /* we can get the lock */
+        _ownerp = threadp;
+        _upgradeCount++;
+    }
+    else {
+        _upgradesWaiting.append(threadp);
+        threadp->sleep(&_lock);
+        _lock.take();
+    }
+
+    /* our rules for upgradeToWrite are that it is set to zero each
+     * time a new thread bumps upgradeCount, before the lockUpgrade
+     * call completes.  It is incremented on an upgradeToWrite call,
+     * but cleared again by the time that call completes.
+     */
+    _upgradeToWrite = 0;
+
+    if (trackerp)
+        _trackerQueue.append(trackerp);
+    _lock.release();
+}
+
+/* call to upgrade an upgrade lock to a write lock.  Key feature of this operation
+ * is that no writers can sneak from the time we got the upgrade lock to the time
+ * that we get the write lock.  Because we already hold the upgrade lock,
+ * we know that there should be no writers and no other upgrade lock holders.
+ * So, we just have to wait until the reader count goes to 0.
+ */
+void
+ThreadLockRw::upgradeToWrite()
+{
+    Thread *threadp = Thread::getCurrent();
+
+    _lock.take();
+    
+    assert(_upgradeCount > 0 && _ownerp == threadp);
+    if (_readCount > 0) {
+        /* this flag is set while the owner is waiting for a write
+         * lock while holding an upgrade lock.
+         */
+        _upgradeToWrite = 1;
+        threadp->sleep(&_lock);
+        _lock.take();
+    }
+    else {
+        /* no readers preventing our upgrade */
+        _upgradeCount--;
+        _writeCount++;
+    }
+
+    /* should clear by the time this call completes */
+    _upgradeToWrite = 0;
+
+    _lock.release();
 }
