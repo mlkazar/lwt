@@ -1,4 +1,4 @@
-all: libthread.a ttest mtest eptest timertest pipetest ptest locktest
+all: libthread.a ttest mtest eptest timertest pipetest ptest locktest iftest
 
 DESTDIR=../export
 
@@ -12,8 +12,17 @@ install: all
 	cp -up libthread.a $(DESTDIR)/lib
 
 clean:
-	-rm -f ptest ttest mtest eptest timertest pipetest locktest *.o *.a *temp.s
+	-rm -f iftest ptest ttest mtest eptest timertest pipetest locktest *.o *.a *temp.s
 	(cd alternatives; make clean)
+
+ospnet.o: ospnet.cc ospnet.h
+	g++ -c $(CFLAGS) ospnet.cc
+
+iftest.o: iftest.cc
+	g++ -c $(CFLAGS) -o iftest.o iftest.cc
+
+iftest: iftest.o ospnet.o
+	g++ -o iftest iftest.o ospnet.o -pthread
 
 getcontext.o: getcontext.s
 	cpp getcontext.s >getcontext-temp.s
@@ -40,8 +49,8 @@ threadmutex.o: threadmutex.cc $(INCLS)
 threadpipe.o: threadpipe.cc $(INCLS)
 	g++ -c $(CFLAGS) threadpipe.cc -pthread
 
-libthread.a: epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o threadtimer.o
-	ar cr libthread.a epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o threadtimer.o
+libthread.a: epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o ospnet.o threadtimer.o
+	ar cr libthread.a epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o ospnet.o threadtimer.o
 	ranlib libthread.a
 
 thread.o: thread.cc $(INCLS)
