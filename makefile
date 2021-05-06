@@ -2,7 +2,7 @@ all: libthread.a ttest mtest eptest timertest pipetest ptest locktest iftest
 
 DESTDIR=../export
 
-INCLS=thread.h threadmutex.h threadpipe.h osp.h dqueue.h epoll.h threadtimer.h spinlock.h ospnew.h
+INCLS=thread.h threadmutex.h threadpipe.h osp.h dqueue.h epoll.h threadtimer.h spinlock.h ospnew.h ospnet.h
 
 CFLAGS=-g -Wall
 
