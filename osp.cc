@@ -42,3 +42,5 @@ long long
 osp_getMs() {
     return osp_getUs() / 1000;
 }
+
+OspAssertFinalizeProc *osp_assert_finalize_procp = 0;

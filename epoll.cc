@@ -86,7 +86,7 @@ EpollOne::threadStart(void *argp)
     code = epoll_ctl(onep->_epFd, EPOLL_CTL_ADD, onep->_readWakeupFd, &ev);
     if (code < 0) {
         printf("epoll: add failed for initial pipe\n");
-        osp_assert(0);
+        thread_assert(0);
     }
 
     while(1) {
@@ -119,7 +119,7 @@ EpollOne::threadStart(void *argp)
         if (evCount < 0) {
             if (errno == EINTR)
                 continue;
-            osp_assert("epoll_wait failed" == 0);
+            thread_assert("epoll_wait failed" == 0);
         }
 
         sysp->_lock.take();
@@ -145,7 +145,7 @@ EpollOne::threadStart(void *argp)
 void
 EpollSys::releaseNL()
 {
-    osp_assert(_refCount > 0);
+    thread_assert(_refCount > 0);
     if (--_refCount == 0) {
         delete this;
     }
@@ -223,7 +223,7 @@ EpollEvent::reenableNL(Flags fl)
 void
 EpollEvent::releaseNL()
 {
-    osp_assert(_refCount > 0);
+    thread_assert(_refCount > 0);
     if (--_refCount == 0) {
         _sysp->releaseNL();
         _sysp = NULL;

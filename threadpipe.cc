@@ -109,7 +109,7 @@ ThreadPipe::read(char *bufferp, int32_t count)
         _pos += bytesThisTime;
         if (_pos >= _maxBytes) {
             /* we try not to wrap, so at most this may be equal to the end */
-            osp_assert(_pos == _maxBytes);
+            thread_assert(_pos == _maxBytes);
             _pos -= _maxBytes;
         }
         _count -= bytesThisTime;

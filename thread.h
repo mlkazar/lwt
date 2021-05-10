@@ -303,7 +303,7 @@ class ThreadIdle : public Thread {
 
 class ThreadMain : public Thread {
     void *start() {
-        osp_assert(0);
+        thread_assert(0);
     }
 
  public:

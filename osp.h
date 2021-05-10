@@ -29,12 +29,24 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <sys/types.h>
 #include <assert.h>
 
-#define osp_assert(x) assert(x)
+#define thread_assert(x) assert(x)
+
+#define osp_assert(x) do { \
+    if (!(x)) { \
+        if (osp_assert_finalize_procp)                   \
+            osp_assert_finalize_procp(__FILE__, __LINE__);      \
+        assert(!( #x ));                \
+    } \
+} while (0);
 
 #include "ospnew.h"
+
+typedef void OspAssertFinalizeProc(const char *fileNamep, int lineNumber);
 
 extern long long osp_getUs();
 
 extern long long osp_getMs();
+
+extern OspAssertFinalizeProc *osp_assert_finalize_procp;
 
 #endif /* __OSP_H_ENV__ */
