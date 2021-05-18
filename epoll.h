@@ -255,7 +255,7 @@ class EpollEvent {
         }
         _triggered = 0;
         _sysp->_lock.release();
-        return 0;
+        return (_closed? -1 : 0);
     }
 
     void hold() {
