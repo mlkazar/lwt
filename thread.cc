@@ -614,7 +614,7 @@ ThreadHelper::start()
             /* we have something to do */
             _globalThreadLock.release();
             if (itemp->_threadToFreep) {
-                delete itemp->_threadToFreep;
+                itemp->_threadToFreep->release();
             }
             if (itemp->_threadToQueuep) {
                 itemp->_threadToQueuep->queue();
