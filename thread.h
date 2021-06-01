@@ -271,12 +271,12 @@ class Thread {
      * Anyone else who calls this must do so from a different thread than
      * the one being released.
      */
-    virtual void release() {
+    virtual void releaseThread() {
         assert(Thread::getCurrent() != this);
         delete this;
     }
 
-    virtual void hold() {
+    virtual void holdThread() {
         assert(0 == "must overload hold to use it");
     }
 
