@@ -32,46 +32,73 @@ class ThreadCond;
 class ThreadMutex;
 class ThreadMutexDetect;
 
+/* general lock-like class for both read/write locks and mutexes, so that we can
+ * have a single condition variable class that can release either type of lock
+ * atomically with going to sleep.
+ *
+ * In practice, either type of lock will have to be implemented in terms of
+ * spin locks to make this really work when the cond variable goes to sleep.
+ */
+class ThreadBaseLock {
+ public:
+    long long _waitUs;
+    SpinLock _lock;
+
+    virtual void take() = 0;
+
+    virtual void release() = 0;
+
+    virtual int tryLock() = 0;
+
+    virtual void releaseAndSleep(Thread *threadp) = 0;
+
+    virtual long long getWaitUs() {
+        return _waitUs;
+    }
+
+    ThreadBaseLock() {
+        _waitUs = 0;
+    }
+};
+
 /* condition variable.  The internals of all condition variables are protected by the
  * spin lock within the corresponding mutex.
  */
 class ThreadCond {
-    friend class ThreadMutex;
+    friend class ThreadBaseLock;
 
  private:
     dqueue<Thread> _waiting;
-    ThreadMutex *_mutexp;
+    ThreadBaseLock *_baseLockp;
 
  public:
 
     ThreadCond() {
-        _mutexp = NULL;
+        _baseLockp = NULL;
     }
 
-    ThreadCond(ThreadMutex *mutexp) {
-        _mutexp = mutexp;
+    ThreadCond(ThreadBaseLock *baseLockp) {
+        _baseLockp = baseLockp;
     }
 
-    void wait(ThreadMutex *mutexp = 0);
+    void wait(ThreadBaseLock *baseLockp = 0);
 
     void signal();
 
     void broadcast();
 
-    void setMutex(ThreadMutex *mutexp) {
-        _mutexp = mutexp;
+    void setMutex(ThreadBaseLock *baseLockp) {
+        _baseLockp = baseLockp;
     }
 };
 
-class ThreadMutex {
+class ThreadMutex : public ThreadBaseLock {
     friend class ThreadCond;
     friend class ThreadMutexDetect;
 
  private:
-    SpinLock _lock;
     dqueue<Thread> _waiting;
     Thread *_ownerp;
-    long long _waitUs;
 
     /* the releaseNL call is made while holding _lock, and releases the mutex, and finally
      * also releases the internal spin lock.  So, this call is just like release except
@@ -83,7 +110,6 @@ class ThreadMutex {
 
     ThreadMutex() {
         _ownerp = NULL;
-        _waitUs = 0;
     }
     
     void take();
@@ -92,16 +118,18 @@ class ThreadMutex {
 
     void release();
 
-    long long getWaitUs() {
-        return _waitUs;
-    }
-
     static void checkForDeadlocks();
 };
 
 class ThreadLockTracker;
 
-/* typically optional structure for tracking owners for read-like shared locks */
+/* typically optional structure for tracking owners for read shared
+ * locks.  Note that we don't record write locks in the tracker
+ * structure so that we can use the ThreadBaseLock operations, which
+ * don't have associated tracker objects, on them.  Since upgrade and
+ * write locks are held exclusively, we can use _ownerp to find the
+ * current holder.  The trackers will only refer to readers.
+ */
 class ThreadLockTracker {
  public:
     enum LockMode {
@@ -113,7 +141,12 @@ class ThreadLockTracker {
     Thread *_threadp;
     ThreadLockTracker *_dqNextp;
     ThreadLockTracker *_dqPrevp;
-    LockMode _lockMode;         /* 1 is write, 0 is read, turn into enum if necessary */
+    LockMode _lockMode;
+
+    ThreadLockTracker() {
+        _lockMode = _lockNone;
+        _threadp = NULL;
+    }
 };
 
 /* Fair read write lock with upgrade potential.
@@ -128,7 +161,7 @@ class ThreadLockTracker {
  * writesWaiting queue, the upgradeToWrite flag is set, and _ownerp
  * contains the thread that holds the upgrade/write lock.
  */
-class ThreadLockRw {
+class ThreadLockRw : public ThreadBaseLock {
  private:
     /* the WaitReason values are stored in the thread's _sleepContext field */
     enum WaitReason {
@@ -138,7 +171,6 @@ class ThreadLockRw {
         _reasonUpgrade = 3,     /* waiting to get an upgrade lock */
         _reasonUpgradeToWrite = 4}; /* have upgrade lock, waiting to upgrade it to write */
 
-    SpinLock _lock;
     uint32_t _readCount;
     uint8_t _writeCount;        /* always 0 or 1 */
     uint8_t _upgradeCount;      /* always 0 or 1 */
@@ -160,36 +192,26 @@ class ThreadLockRw {
     /* optional -- you don't have to use the mode that saves this state, but you should */
     dqueue<ThreadLockTracker> _trackerQueue;
 
-    long long _waitUs;
-
-    /* the releaseNL call is made while holding _lock, and releases the mutex, and finally
-     * also releases the internal spin lock.  So, this call is just like release except
-     * the spin lock is held on entry, but left released on exit.
-     */
-    void releaseReadAndSleep(Thread *threadp, ThreadLockTracker *trackerp);
-
-    void releaseWriteAndSleep(Thread *threadp, ThreadLockTracker *trackerp);
+    /* release a write lock and go to sleep atomically */
+    void releaseAndSleep(Thread *threadp);
 
  public:
 
     ThreadLockRw() {
         _ownerp = NULL;
-        _waitUs = 0;
         _fairness = 0;
         _readCount = 0;
         _writeCount = 0;
         _upgradeCount = 0;
         _upgradeToWrite = 0;
         _ownerp = NULL;
-        _waitUs = 0;
-        
     }
     
     void lockWrite(ThreadLockTracker *trackerp=0);
 
     int tryWrite(ThreadLockTracker *trackerp = 0);
 
-    void releaseWrite(ThreadLockTracker *trackerp);
+    void releaseWrite(ThreadLockTracker *trackerp = 0);
 
     void lockRead(ThreadLockTracker *trackerp=0);
 
@@ -221,11 +243,24 @@ class ThreadLockRw {
             releaseUpgrade(trackerp);
     }
 
+    /* define base operations so condition variables will work with
+     * these, as long as we only block for a CV while holding a write
+     * lock.
+     */
+    void take() {
+        lockWrite();
+    }
+
+    int tryLock() {
+        return tryWrite();
+    }
+
+    void release() {
+        releaseWrite(NULL);
+    }
+
     void wakeNext();
 
-    long long getWaitUs() {
-        return _waitUs;
-    }
 };
 
 class ThreadMutexDetect {
