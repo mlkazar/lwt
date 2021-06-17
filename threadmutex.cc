@@ -625,6 +625,24 @@ ThreadLockRw::releaseRead(ThreadLockTracker *trackerp)
     _lock.release();
 }
 
+void
+ThreadLockRw::writeToRead()
+{
+    Thread *threadp = Thread::getCurrent();
+
+    _lock.take();
+    assert(_writeCount > 0 && _ownerp == threadp);
+
+    /* clear state indicating write locked */
+    _writeCount--;
+    _ownerp = NULL;
+
+    /* and increment readers */
+    _readCount++;
+    
+    _lock.release();
+}
+
 /* get an upgrade lock */
 void
 ThreadLockRw::lockUpgrade(ThreadLockTracker *trackerp)

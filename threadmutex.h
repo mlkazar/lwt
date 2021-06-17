@@ -195,6 +195,8 @@ class ThreadLockRw : public ThreadBaseLock {
     /* release a write lock and go to sleep atomically */
     void releaseAndSleep(Thread *threadp);
 
+    void writeToRead();
+
  public:
 
     ThreadLockRw() {
