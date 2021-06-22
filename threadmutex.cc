@@ -244,34 +244,33 @@ ThreadMutexDetect::start()
 
 /*****************ThreadCond*****************/
 void
-ThreadCond::wait(ThreadMutex *mutexp)
+ThreadCond::wait(ThreadBaseLock *baseLockp)
 {
     Thread *mep = Thread::getCurrent();
 
     /* keep track which mutex is associated with this condition variable */
-    if (_mutexp == NULL)
-        _mutexp = mutexp;
-    else if (mutexp == NULL) {
-        mutexp = _mutexp;
+    if (_baseLockp == NULL)
+        _baseLockp = baseLockp;
+    else if (baseLockp == NULL) {
+        baseLockp = _baseLockp;
     }
     else {
-        assert(_mutexp == mutexp);
+        assert(_baseLockp == baseLockp);
     }
 
     /* grab the spinlock protecting te mutex, and put ourselves to sleep
      * on the CV.  Finally, drop the mutex.
      */
-    mutexp->_lock.take();
-    assert(mep == mutexp->_ownerp);
+    baseLockp->_lock.take();
     
     /* queue our task for the CV */
     _waiting.append(mep);
 
     /* and block, releasing the associated mutex */
-    mutexp->releaseAndSleep(mep);
+    baseLockp->releaseAndSleep(mep);
 
     /* and reobtain it on the way back out */
-    mutexp->take();
+    baseLockp->take();
 }
 
 /* wakeup a single waiting thread */
@@ -279,9 +278,10 @@ void
 ThreadCond::signal()
 {
     Thread *headp;
-    _mutexp->_lock.take();
+
+    _baseLockp->_lock.take();
     headp = _waiting.pop();
-    _mutexp->_lock.release();
+    _baseLockp->_lock.release();
 
     headp->queue();
 }
@@ -293,10 +293,10 @@ ThreadCond::broadcast()
     Thread *headp;
     Thread *nextp;
 
-    _mutexp->_lock.take();
+    _baseLockp->_lock.take();
     headp = _waiting.head();
     _waiting.init();
-    _mutexp->_lock.release();
+    _baseLockp->_lock.release();
 
     /* and wakeup all, noting that as soon as a thread is queued, the rest of its
      * queue pointers may change.
@@ -352,13 +352,6 @@ ThreadLockRw::lockWrite(ThreadLockTracker *trackerp)
         _writeCount++;
     }
 
-    /* record our ownership information, if any */
-    if (trackerp) {
-        trackerp->_lockMode = ThreadLockTracker::_lockWrite;
-        trackerp->_threadp = threadp;
-        _trackerQueue.append(trackerp);
-    }
-
     _lock.release();
 }
 
@@ -383,13 +376,6 @@ ThreadLockRw::tryWrite(ThreadLockTracker *trackerp)
          _fairness = 1;
          _ownerp = threadp;
          _writeCount++;
-    }
-
-    /* record our ownership information, if any */
-    if (trackerp) {
-        trackerp->_lockMode = ThreadLockTracker::_lockWrite;
-        trackerp->_threadp = threadp;
-        _trackerQueue.append(trackerp);
     }
 
     _lock.release();
@@ -505,13 +491,25 @@ ThreadLockRw::releaseWrite(ThreadLockTracker *trackerp)
     _writeCount--;
     _ownerp = NULL;
 
-    /* cleanup tracker tracking state, if any */
-    if (trackerp) {
-        _trackerQueue.remove(trackerp);
-    }
-
     wakeNext();
     _lock.release();
+}
+
+/* internal function: must be called with the base spin lock held.  Goes
+ * to sleep and atomically drops the spin lock as well.
+ */
+void
+ThreadLockRw::releaseAndSleep(Thread *threadp)
+{
+    assert(_writeCount > 0 && _ownerp == threadp);
+
+    /* clear state indicating write locked */
+    _writeCount--;
+    _ownerp = NULL;
+
+    wakeNext();
+
+    threadp->sleep(&_lock);
 }
 
 void
@@ -554,6 +552,8 @@ ThreadLockRw::lockRead(ThreadLockTracker *trackerp)
 
             if (trackerp) {
                 _lock.take();
+                trackerp->_lockMode = ThreadLockTracker::_lockRead;
+                trackerp->_threadp = threadp;
                 _trackerQueue.append( trackerp);
                 _lock.release();
             }
@@ -564,6 +564,8 @@ ThreadLockRw::lockRead(ThreadLockTracker *trackerp)
     /* no writers waiting, we can add a read lock */
     if (_writeCount == 0) {
         if (trackerp) {
+            trackerp->_lockMode = ThreadLockTracker::_lockRead;
+            trackerp->_threadp = threadp;
             _trackerQueue.append(trackerp);
         }
         _readCount++;
@@ -576,6 +578,8 @@ ThreadLockRw::lockRead(ThreadLockTracker *trackerp)
 
     if (trackerp) {
         _lock.take();
+        trackerp->_lockMode = ThreadLockTracker::_lockRead;
+        trackerp->_threadp = threadp;
         _trackerQueue.append(trackerp);
         _lock.release();
     }
@@ -589,8 +593,11 @@ ThreadLockRw::tryRead(ThreadLockTracker *trackerp)
     _lock.take();
     if (_writeCount == 0) {
         _readCount++;
-        if (trackerp)
+        if (trackerp) {
+            trackerp->_lockMode = ThreadLockTracker::_lockRead;
+            trackerp->_threadp = Thread::getCurrent();
             _trackerQueue.append(trackerp);
+        }
         _lock.release();
         return 1;
     }
@@ -608,11 +615,31 @@ ThreadLockRw::releaseRead(ThreadLockTracker *trackerp)
     assert(_readCount > 0);
     _readCount--;
     if (trackerp) {
+        trackerp->_lockMode = ThreadLockTracker::_lockNone;
+        trackerp->_threadp = NULL;
         _trackerQueue.remove( trackerp);
     }
 
     wakeNext();
 
+    _lock.release();
+}
+
+void
+ThreadLockRw::writeToRead()
+{
+    Thread *threadp = Thread::getCurrent();
+
+    _lock.take();
+    assert(_writeCount > 0 && _ownerp == threadp);
+
+    /* clear state indicating write locked */
+    _writeCount--;
+    _ownerp = NULL;
+
+    /* and increment readers */
+    _readCount++;
+    
     _lock.release();
 }
 
@@ -643,8 +670,6 @@ ThreadLockRw::lockUpgrade(ThreadLockTracker *trackerp)
      */
     _upgradeToWrite = 0;
 
-    if (trackerp)
-        _trackerQueue.append(trackerp);
     _lock.release();
 }
 

@@ -263,6 +263,23 @@ class Thread {
 
     int32_t join(void **ptrpp);
 
+    /* provide a way for someone to add reference counts and intercept our
+     * deletion of the thread.  Note that Thread::exit will call this
+     * on a different thread than the exiting thread (so that we don't free
+     * the stack we're actively using).
+     *
+     * Anyone else who calls this must do so from a different thread than
+     * the one being released.
+     */
+    virtual void releaseThread() {
+        assert(Thread::getCurrent() != this);
+        delete this;
+    }
+
+    virtual void holdThread() {
+        assert(0 == "must overload hold to use it");
+    }
+
     static void setTrackStackUsage(int trackStackUsage = 1) {
         _trackStackUsage = trackStackUsage;
     }
