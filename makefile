@@ -1,8 +1,8 @@
-all: libthread.a ttest mtest eptest timertest pipetest ptest locktest iftest
+all: libthread.a ttest mtest eptest timertest pipetest ptest locktest iftest threadpooltest
 
 DESTDIR=../export
 
-INCLS=thread.h threadmutex.h threadpipe.h osp.h dqueue.h epoll.h threadtimer.h spinlock.h ospnew.h ospnet.h
+INCLS=thread.h threadmutex.h threadpipe.h osp.h dqueue.h epoll.h threadtimer.h spinlock.h ospnew.h ospnet.h threadpool.h
 
 CFLAGS=-g -Wall
 
@@ -49,8 +49,8 @@ threadmutex.o: threadmutex.cc $(INCLS)
 threadpipe.o: threadpipe.cc $(INCLS)
 	g++ -c $(CFLAGS) threadpipe.cc -pthread
 
-libthread.a: epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o ospnet.o threadtimer.o
-	ar cr libthread.a epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o ospnet.o threadtimer.o
+libthread.a: epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o ospnet.o threadtimer.o threadpool.o
+	ar cr libthread.a epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o ospnet.o threadtimer.o threadpool.o
 	ranlib libthread.a
 
 thread.o: thread.cc $(INCLS)
@@ -58,6 +58,15 @@ thread.o: thread.cc $(INCLS)
 
 epoll.o: epoll.cc $(INCLS)
 	g++ -c $(CFLAGS) -o epoll.o epoll.cc -pthread
+
+threadpool.o: threadpool.cc $(INCLS)
+	g++ -c $(CFLAGS) -o threadpool.o threadpool.cc
+
+threadpooltest.o: threadpooltest.cc $(INCLS)
+	g++ -c $(CFLAGS) -o threadpooltest.o threadpooltest.cc
+
+threadpooltest: threadpooltest.o libthread.a
+	g++ $(CFLAGS) -o threadpooltest threadpooltest.o libthread.a -pthread
 
 ttest.o: ttest.cc $(INCLS)
 	g++ -c $(CFLAGS) -o ttest.o ttest.cc -pthread
@@ -100,3 +109,4 @@ pipetest: pipetest.o libthread.a
 
 locktest: locktest.o libthread.a
 	g++ -g -o locktest locktest.o libthread.a -pthread
+
