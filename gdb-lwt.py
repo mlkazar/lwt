@@ -28,53 +28,58 @@ SAVED_REGS = ["r8", "r9", "none", "none",
 # set $rsp=$3._ctx.uc_mcontext.gregs[15]
 # set $rip=$3._ctx.uc_mcontext.gregs[16]
 
-# One of these for each load of this script.
+# One of these for each load of this script.  ThreadContext maintains
+# a copy of the initial register state for the first gdb thread (pthread)
+# in saved_regs, and then loads from the Thread package's context
+# field when you call the set_machine_regs_from_thread function.
+#
+# The function restore_machine_regs puts back the saved registers
+# so that it is safe to continue from the stopped gdb.  The command
+# that triggesr this is 'uthr done'
 class ThreadContext:
+    # called by set_machine_regs_from_thread to ensure that the
+    # machine registers for the current pthread are preserved.
     def save_machine_regs(self):
         if self.tid == 0:
             self.tid = gdb.selected_thread().global_num
-            print("**saving machine state for tid", self.tid, "initially")
+            print("Don't forget to 'uthr done' before resuming execution")
             for x in SAVED_REGS:
                 if x == "none":
                     continue
                 value = gdb.parse_and_eval("$" + x).format_string(format='x')
-                print("value is", value, "for", x)
                 self.saved_regs[x] = value
 
+    # save the machine registers if necessary and then restore the register state
+    # from the specified thread address into the current pthread's register state
+    # so that gdb works with it.
     def set_machine_regs_from_thread(self, ptr):
         # save the pointer and ensure that we have the registers we're
         # going to overwrite saved in saved_regs
         self.ptr = ptr
         self.save_machine_regs()
-        print("saved regs:")
-        print(self.saved_regs)
 
         t1 = gdb.lookup_type('uint64_t').array(17)
         registers = ptr.dereference().cast(t1)
-        print ("regster array from thread:")
-        print (registers)
 
         # restore the registers
         for i in range(0,17):
             if SAVED_REGS[i] == "none":
                 continue
             command = "set $" + SAVED_REGS[i] + "=" + str(registers[i])
-            print("command is ", command)
             gdb.execute(command)
         
+    # restore the saved registers now into the same pthread as we saved the
+    # registers from on our first uthr command
     def restore_machine_regs(self):
         if (self.tid == 0):
-            print("machine state already restored")
-            return
+            return -1
         command = "thread " + str(self.tid)
-        print("thread command is ", command)
         gdb.execute(command)
         self.tid = 0
         for x in self.saved_regs:
             command = "set $" + x + "=" + str(self.saved_regs[x])
-            print ("register restore command is", command)
             gdb.execute(command)
-        return
+        return 0
 
     def __init__(self):
         self.tid = 0
@@ -83,24 +88,26 @@ class ThreadContext:
         self.saved = 0
         self.thread_addr = 0
 
-class xthr(gdb.Command):
+class uthread(gdb.Command):
     "python thread command"
 
     def __init__(self):
-        super(xthr, self).__init__("xthr", gdb.COMMAND_USER)
+        super(uthread, self).__init__("uthread", gdb.COMMAND_USER)
         self.thread_context = ThreadContext()
 
     def invoke(self, arg, from_tty):
         argv = gdb.string_to_argv(arg)
-        print(len(argv))
         if len(argv) < 1:
-            print("usage: xthr <thread address>");
-            print("or restore state with: xthr done")
+            print("usage: uthread <thread address>");
+            print("or restore state with: uthread done")
             return
 
         if (argv[0] == "done"):
-            self.thread_context.restore_machine_regs()
-            print("Register state restored")
+            code = self.thread_context.restore_machine_regs()
+            if (code == 0):
+                print("Register state restored")
+            else:
+                print("Register state already restored")
             return
 
         # NB: the 88 is the offset of the general registers in the thread structure
@@ -109,8 +116,6 @@ class xthr(gdb.Command):
         v = int(argv[0], 0) + 88
         t1 = gdb.lookup_type("ucontext_t").pointer()
         ptr = gdb.Value(v).cast(t1)
-        print(ptr)
         self.thread_context.set_machine_regs_from_thread(ptr)
-        print("done with setstate")
 
-xthr()
+uthread()
