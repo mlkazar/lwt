@@ -12,7 +12,7 @@ install: all
 	cp -up libthread.a $(DESTDIR)/lib
 
 clean:
-	-rm -f iftest ptest ttest mtest eptest timertest pipetest locktest *.o *.a *temp.s
+	-rm -f iftest ptest ttest mtest eptest timertest pipetest locktest threadpooltest *.o *.a *temp.s
 	(cd alternatives; make clean)
 
 ospnet.o: ospnet.cc ospnet.h
