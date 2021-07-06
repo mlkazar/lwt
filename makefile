@@ -1,4 +1,4 @@
-all: libthread.a ttest mtest eptest timertest pipetest ptest locktest iftest
+all: libthread.a ttest mtest eptest timertest pipetest ptest locktest iftest threadpooltest
 
 ifndef RANLIB
 RANLIB=ranlib
@@ -6,7 +6,7 @@ endif
 
 DESTDIR=../export
 
-INCLS=thread.h threadmutex.h threadpipe.h osp.h dqueue.h epoll.h threadtimer.h spinlock.h ospnew.h ospnet.h
+INCLS=thread.h threadmutex.h threadpipe.h osp.h dqueue.h epoll.h threadtimer.h spinlock.h ospnew.h ospnet.h threadpool.h
 
 CXXFLAGS=-g -Wall
 
@@ -16,7 +16,7 @@ install: all
 	cp -up libthread.a $(DESTDIR)/lib
 
 clean:
-	-rm -f iftest ptest ttest mtest eptest timertest pipetest locktest *.o *.a *temp.s
+	-rm -f iftest ptest ttest mtest eptest timertest pipetest locktest threadpooltest *.o *.a *temp.s
 	(cd alternatives; make clean)
 
 ospnet.o: ospnet.cc ospnet.h
@@ -53,15 +53,30 @@ threadmutex.o: threadmutex.cc $(INCLS)
 threadpipe.o: threadpipe.cc $(INCLS)
 	$(CXX) -c $(CXXFLAGS) threadpipe.cc -pthread
 
-libthread.a: epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o ospnet.o threadtimer.o
+<<<<<<< HEAD
+libthread.a: epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o ospnet.o threadtimer.o threadpool.o
 	$(AR) cr libthread.a epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o ospnet.o threadtimer.o
 	$(RANLIB) libthread.a
+=======
+libthread.a: epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o ospnet.o threadtimer.o threadpool.o
+	ar cr libthread.a epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o ospnet.o threadtimer.o threadpool.o
+	ranlib libthread.a
+>>>>>>> e78545835c3b4d462808213576877acadf11ef67
 
 thread.o: thread.cc $(INCLS)
 	$(CXX) -c $(CXXFLAGS) -o thread.o thread.cc -pthread
 
 epoll.o: epoll.cc $(INCLS)
 	$(CXX) -c $(CXXFLAGS) -o epoll.o epoll.cc -pthread
+
+threadpool.o: threadpool.cc $(INCLS)
+	$(CXX) -c $(CXXFLAGS) -o threadpool.o threadpool.cc
+
+threadpooltest.o: threadpooltest.cc $(INCLS)
+	$(CXX) -c $(CXXFLAGS) -o threadpooltest.o threadpooltest.cc
+
+threadpooltest: threadpooltest.o libthread.a
+	$(CXX) $(CXXFLAGS) -o threadpooltest threadpooltest.o libthread.a -pthread
 
 ttest.o: ttest.cc $(INCLS)
 	$(CXX) -c $(CXXFLAGS) -o ttest.o ttest.cc -pthread
