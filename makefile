@@ -50,8 +50,8 @@ threadpipe.o: threadpipe.cc $(INCLS)
 	g++ -c $(CFLAGS) threadpipe.cc -pthread
 
 libthread.a: epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o ospnet.o threadtimer.o threadpool.o
-	ar cr libthread.a epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o ospnet.o threadtimer.o threadpool.o
-	ranlib libthread.a
+	$(AR) cr libthread.a epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o ospnet.o threadtimer.o threadpool.o
+	$(RANLIB) libthread.a
 
 thread.o: thread.cc $(INCLS)
 	g++ -c $(CFLAGS) -o thread.o thread.cc -pthread
