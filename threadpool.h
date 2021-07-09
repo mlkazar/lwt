@@ -97,7 +97,7 @@ class ThreadPool {
         }
 
         int getIdleOnExit() {
-            return _waitForJoin;
+            return (_waitForJoin == 0);
         }
 
         void init(ThreadPool *poolp);
