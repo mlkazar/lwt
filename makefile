@@ -53,15 +53,9 @@ threadmutex.o: threadmutex.cc $(INCLS)
 threadpipe.o: threadpipe.cc $(INCLS)
 	$(CXX) -c $(CXXFLAGS) threadpipe.cc -pthread
 
-<<<<<<< HEAD
 libthread.a: epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o ospnet.o threadtimer.o threadpool.o
-	$(AR) cr libthread.a epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o ospnet.o threadtimer.o
+	$(AR) cr libthread.a epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o ospnet.o threadtimer.o threadpool.o
 	$(RANLIB) libthread.a
-=======
-libthread.a: epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o ospnet.o threadtimer.o threadpool.o
-	ar cr libthread.a epoll.o thread.o getcontext.o setcontext.o threadmutex.o threadpipe.o osp.o ospnew.o ospnet.o threadtimer.o threadpool.o
-	ranlib libthread.a
->>>>>>> e78545835c3b4d462808213576877acadf11ef67
 
 thread.o: thread.cc $(INCLS)
 	$(CXX) -c $(CXXFLAGS) -o thread.o thread.cc -pthread
