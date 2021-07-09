@@ -140,14 +140,15 @@ where ms is the number of milliseconds for the timer, callback has the signature
 
 Note that there's an inherent race between canceling a timer and the timer's firing.  If a timer is canceled at the same time that the timer package has called the callback function, but the callback function hasn't begun execution, there's essentially nothing the timer package can do to prevent the callback function from executing.  If the code that cancels the timer also frees the context object, the timer callback will crash.
 
-There are several ways of dealing with this race condition.
+There are several ways of dealing with this race condition, but the only one discussed here in detail is option 1:
 
-Option 1: static lock protecting timer:
+Static lock protecting timer:
 
 ```
 void deleter(Context *cxp) {
 	_lock.take();
-	cxp->_timerp->cancel();
+	if (cxp->_timerp)
+		cxp->_timerp->cancel();
 	delete cxp;
 	_lock.release();
 }
@@ -163,6 +164,7 @@ TimerCallback(ThreadTimer *timerp, void *contextp) {
 		return;
 	}
 	Context *objp = (Context *) contextp;
+	objp->_timerp = NULL;	/* will be deleted upon our return */
 	...
 	do_random_stuff_with(objp);
 	_lock.release();
@@ -170,9 +172,8 @@ TimerCallback(ThreadTimer *timerp, void *contextp) {
 ```
 In this pattern, if the context object is deleted, and we're holding the lock, then the timer will be canceled as well.  Note that it's important that we don't put _lock in the context object, or we won't be able to safely take the lock.
 
-<<<if cancel returns failure, set deleted flag adn have timer deleet the object>>>
-
-<<<ref count
+### Alternative Model (not supported)
+The main alternative I've seen to this approach is reference counting the context object, and having the timer keep a reference to the context object as well.  The context's reference count is then maintained by the uncanceled timer, and is incremented for the duration of a callback, preventing the context object from being freed during the timer callback.  This approach does require all context objects to be a subclass if a reference counted base context object, and maintaining the reference count probably requires a static lock as well, so it isn't clear that this approach is any simpler.
 
 ## Locking Rules
 Nothing too complex here.
