@@ -69,7 +69,7 @@ operator new(size_t asize)
 }
 
 void
-operator delete(void *aptr)
+operator delete(void *aptr) noexcept
 {
     ospMemHdr *hdrp = (ospMemHdr *)aptr;
     hdrp--;

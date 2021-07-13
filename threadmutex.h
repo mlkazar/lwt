@@ -59,6 +59,10 @@ class ThreadBaseLock {
     ThreadBaseLock() {
         _waitUs = 0;
     }
+
+    virtual ~ThreadBaseLock() {
+        return;
+    }
 };
 
 /* condition variable.  The internals of all condition variables are protected by the
@@ -117,6 +121,10 @@ class ThreadMutex : public ThreadBaseLock {
     int tryLock();
 
     void release();
+
+    virtual ~ThreadMutex() {
+        return;
+    }
 
     static void checkForDeadlocks();
 };
@@ -263,6 +271,9 @@ class ThreadLockRw : public ThreadBaseLock {
 
     void wakeNext();
 
+    virtual ~ThreadLockRw() {
+        return;
+    }
 };
 
 class ThreadMutexDetect {

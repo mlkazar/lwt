@@ -115,6 +115,10 @@ class ThreadPool {
     class WorkerFactory {
     public:
         virtual Worker *newWorker() = 0;
+
+        virtual ~WorkerFactory() {
+            return;
+        }
     };
 
     ThreadMutex _lock;

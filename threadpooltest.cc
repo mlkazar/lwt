@@ -29,6 +29,10 @@ public:
     ThreadPool::Worker *newWorker() {
         return new TestWorker();
     }
+
+    virtual ~TestWorkerFactory() {
+        return;
+    }
 };
 
 class TestReceiver : public Thread {

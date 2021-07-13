@@ -10,11 +10,6 @@ ucontext_t thra;
 ucontext_t thrb;
 int dispId=0;
 
-class Task {
-    ucontext_t _ctx;
-    
-};
-
 void
 dispatch()
 {
@@ -30,7 +25,7 @@ fn1(int parm, int parm2)
 {
     int x;
     while(1) {
-        printf("fn1 is %d %d %d with %p\n", sizeof(parm), parm, parm2, &x);
+        printf("fn1 is %ld %d %d with %p\n", sizeof(parm), parm, parm2, &x);
         dispatch();
     }
 }

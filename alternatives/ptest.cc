@@ -31,7 +31,7 @@ start1(void *ctxp)
             long long diff;
 
             diff = getus() - main_startUs;
-            printf("Done, %d RTTs in %lld us (%lld ns each)!\n", main_maxCounter, diff, 
+            printf("Done, %ld RTTs in %lld us (%lld ns each)!\n", main_maxCounter, diff, 
                    diff*1000/main_maxCounter);
             exit(0);
         }
@@ -87,7 +87,7 @@ main(int argc, char **argv)
         junk2 = pthread_getspecific(main_key);
     }
     diff = getus() - start;
-    printf("Getspecific %d calls in %ld ns (%ld ns each)\n",
+    printf("Getspecific %ld calls in %ld ns (%ld ns each)\n",
            main_maxCounter, diff, diff*1000/main_maxCounter);
 
     pthread_mutex_init(&testMutex, NULL);
@@ -98,7 +98,7 @@ main(int argc, char **argv)
     }
 
     diff = getus() - start;
-    printf("Mutex lock/unlock test %d pairs in %ld ns (%ld ns each)\n",
+    printf("Mutex lock/unlock test %ld pairs in %ld ns (%ld ns each)\n",
            main_maxCounter, diff, diff*1000/main_maxCounter);
 
     pthread_mutex_init(&main_mutex, NULL);
