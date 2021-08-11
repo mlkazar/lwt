@@ -18,7 +18,6 @@ ThreadPipe::write(const char *bufferp, int32_t count)
         /* if other side indicated EOF, treat writes as if they're unable to do anything */
         if (_eof) {
             _lock.release();
-            printf("cthreadpipe::write at EOF\n");
             return -1;
         }
 
