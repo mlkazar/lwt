@@ -178,6 +178,7 @@ main(int argc, char **argv)
 {
     long i;
     SpinLock tlock;
+    ThreadMutex mlock;
     long long startUs;
     PingPong *pingPongp;
     CreateSleep *csleep;
@@ -189,6 +190,8 @@ main(int argc, char **argv)
         return -1;
     }
     
+    ThreadDispatcher::setup(/* # of pthreads */ 2);
+
     main_maxCount = atoi(argv[1]);
 
     startUs = getus();
@@ -199,8 +202,13 @@ main(int argc, char **argv)
     printf("%d lock/unlock pairs %ld ns each\n",
            (int) main_maxCount, (long) (getus() - startUs) * 1000 / main_maxCount);
 
-    /* start the dispatcher */
-    ThreadDispatcher::setup(/* # of pthreads */ 2);
+    startUs = getus();
+    for(i=0;i<main_maxCount;i++) {
+        mlock.take();
+        mlock.release();
+    }
+    printf("%d lock/unlock mutex pairs %ld ns each\n",
+           (int) main_maxCount, (long) (getus() - startUs) * 1000 / main_maxCount);
 
     /* start thread on a dispatcher */
     main_doneCounter = 0;
