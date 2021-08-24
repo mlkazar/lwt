@@ -305,6 +305,9 @@ ThreadIdle::start()
 
 /*****************ThreadDispatcher*****************/
 
+/* statics */
+uint32_t ThreadDispatcher::_spinTicks = 2200000; /* default */
+
 /* Internal; find a thread in our dispastcher's run queue, and resume
  * it.  Go to sleep if there are no runnable threads.
  * 
@@ -324,15 +327,14 @@ ThreadDispatcher::dispatch()
         newThreadp = _runQueue._queue.pop();
         currentTicks = threadCpuTicks();
         if (!newThreadp) {
-#if 0
             /* CPU runs at about 2000-3000 cpu ticks per usec.  If we want
              * to wait at least a millisecond, 3 million ticks is about right
              */
-            if (currentTicks - _lastDispatchTicks < 3000000) {
+            if ((currentTicks - _lastDispatchTicks) < _spinTicks) {
                 _runQueue._queueLock.release();
                 continue;
             }
-#endif
+
             _sleeping = 1;
             _runQueue._queueLock.release();
             pthread_mutex_lock(&_runMutex);
@@ -344,9 +346,7 @@ ThreadDispatcher::dispatch()
             pthread_mutex_unlock(&_runMutex);
         }
         else{
-#if 0
             _lastDispatchTicks = threadCpuTicks();
-#endif
             _runQueue._queueLock.release();
             _currentThreadp = newThreadp;
             newThreadp->_currentDispatcherp = this;
@@ -465,6 +465,18 @@ ThreadDispatcher::setup(uint16_t ndispatchers)
 {
     pthread_t junk;
     uint32_t i;
+    uint32_t cpuCount;
+
+    /* don't use more than ndispatchers, and always leave at least one CPU alone */
+    cpuCount = getCpuCount();
+    if (ndispatchers > cpuCount-1)
+        ndispatchers = cpuCount - 1;
+    
+    /* if we don't have many CPUs, don't risk slowing things down by having a dispatcher
+     * spin before going idle.
+     */
+    if (cpuCount <= 2)
+        _spinTicks = 0;
 
     /* setup monitoring system */
     new ThreadMon();
@@ -588,6 +600,52 @@ ThreadDispatcher::resumeAllDispatching()
             break;
         disp->resumeDispatching();
     }
+}
+
+/* static */ uint32_t
+ThreadDispatcher::getCpuCount()
+{
+
+    char fname[] = "/proc/cpuinfo";
+    char type[20];
+    char value[1000];
+    uint32_t cpuCount = 0;
+
+    FILE *f = fopen(fname, "r");
+
+    while (true) {
+        int res = fscanf(f, "%20[^:]:%1000[^\n]\n", type, value);
+
+        if (res < 0) {
+            break;
+        }
+        /*
+         * The assumption here is that cpuinfo will always have
+         *     (^<type_str>\s?:( <value_str>)?$)|(^$)
+         * If fscanf doesn't get <value_str> but has gotten <type_str>
+         * it must be placed after the :, facing a \n
+         * Thus in both cases, we eat the \n.
+         */
+        if (res < 2) {
+            fscanf(f, "\n");
+            continue;
+        }
+
+        /*
+         * Our assumption is that processor comes first in the lineup.
+         */
+        if (strncmp(type, "processor", 9) == 0) {
+            cpuCount++;
+        }
+    }
+
+    fclose(f);
+
+    /* keep things sane */
+    if (cpuCount < 1)
+        cpuCount = 1;
+
+    return cpuCount;
 }
 
 /*****************Once*****************/

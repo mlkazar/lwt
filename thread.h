@@ -455,6 +455,9 @@ class ThreadDispatcher {
     pthread_mutex_t _runMutex;
     uint64_t _lastDispatchTicks;
 
+    /* other config */
+    static uint32_t _spinTicks;
+
     /* an idle thread that provides a thread with a stack on which we can run
      * the dispatcher.
      */
@@ -499,6 +502,8 @@ class ThreadDispatcher {
     void pauseDispatching();
 
     void resumeDispatching();
+
+    static uint32_t getCpuCount();
 
     static void pauseAllDispatching();
 
