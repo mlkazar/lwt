@@ -51,6 +51,8 @@ int Thread::_trackStackUsage = 0;
 
 ThreadMon *ThreadMon::_monp = 0;
 
+Thread::TraceProc *Thread::_traceProcp;
+
 /*****************Thread*****************/
 
 /* internal function doing some of the initialization of a thread */
@@ -315,10 +317,22 @@ void
 ThreadDispatcher::dispatch()
 {
     Thread *newThreadp;
+    uint64_t currentTicks;
+
     while(1) {
         _runQueue._queueLock.take();
         newThreadp = _runQueue._queue.pop();
+        currentTicks = threadCpuTicks();
         if (!newThreadp) {
+#if 0
+            /* CPU runs at about 2000-3000 cpu ticks per usec.  If we want
+             * to wait at least a millisecond, 3 million ticks is about right
+             */
+            if (currentTicks - _lastDispatchTicks < 3000000) {
+                _runQueue._queueLock.release();
+                continue;
+            }
+#endif
             _sleeping = 1;
             _runQueue._queueLock.release();
             pthread_mutex_lock(&_runMutex);
@@ -330,6 +344,9 @@ ThreadDispatcher::dispatch()
             pthread_mutex_unlock(&_runMutex);
         }
         else{
+#if 0
+            _lastDispatchTicks = threadCpuTicks();
+#endif
             _runQueue._queueLock.release();
             _currentThreadp = newThreadp;
             newThreadp->_currentDispatcherp = this;
@@ -480,6 +497,7 @@ ThreadDispatcher::ThreadDispatcher(int special) {
     _idle._disp = this;
     _pauseRequests = 0;
     _paused = 0;
+    _lastDispatchTicks = 0;     /* last time a thread was dispatched */
     pthread_mutex_init(&_runMutex, NULL);
     pthread_cond_init(&_runCV, NULL);
     pthread_cond_init(&_pauseCV, NULL);

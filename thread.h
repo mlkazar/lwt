@@ -56,6 +56,14 @@ class ThreadMutex;
 
 #include "spinlock.h"
 
+static __inline uint64_t
+threadCpuTicks()
+{
+    uint32_t lo, hi;
+    __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi));
+    return (uint64_t)hi << 32 | lo;
+}
+
 class ThreadMon {
  public:
     typedef void checkProc(void *contextp);
@@ -102,6 +110,15 @@ class Thread {
     friend class ThreadMutexDetect;
 
  public:
+    typedef void (TraceProc)( uint64_t mask,
+                              const char *strp,
+                              uint64_t p0,
+                              uint64_t p1,
+                              uint64_t p2,
+                              uint64_t p3,
+                              uint64_t p4,
+                              uint64_t p5);
+
     typedef void (InitProc) (void *contextp, Thread *threadp);
 
     /* a list of all threads in existence, and a spin lock that
@@ -113,6 +130,19 @@ class Thread {
     static SpinLock _globalThreadLock;
     static uint32_t _defaultStackSize;
     static int _trackStackUsage;
+    static TraceProc *_traceProcp;      /* someone will init for us */
+
+    static void traceProc( uint64_t mask,
+                           const char *p,
+                           uint64_t p0,
+                           uint64_t p1,
+                           uint64_t p2,
+                           uint64_t p3,
+                           uint64_t p4,
+                           uint64_t p5) {
+        if (Thread::_traceProcp)
+            Thread::_traceProcp(mask, p, p0, p1, p2, p3, p4, p5);
+    }
 
     /* for when thread is blocked, or when it is in a run queue, these pointers are
      * used.
@@ -214,6 +244,10 @@ class Thread {
     }
 
     virtual ~Thread();
+
+    static void setTraceProc(TraceProc *procp) {
+        _traceProcp = procp;
+    }
 
     /* set the flag; once set, the thread can exit, but its state won't get
      * freed until the thread is joined.
@@ -419,6 +453,7 @@ class ThreadDispatcher {
     int _sleeping;
     pthread_cond_t _runCV;
     pthread_mutex_t _runMutex;
+    uint64_t _lastDispatchTicks;
 
     /* an idle thread that provides a thread with a stack on which we can run
      * the dispatcher.
