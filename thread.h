@@ -144,8 +144,8 @@ class Thread {
             Thread::_traceProcp(mask, p, p0, p1, p2, p3, p4, p5);
     }
 
-    /* for when thread is blocked, or when it is in a run queue, these pointers are
-     * used.
+    /* for when thread is blocked, or when it is in a run queue, these
+     * pointers are used.
      */
     Thread *_dqNextp;
     Thread *_dqPrevp;
@@ -164,6 +164,12 @@ class Thread {
      * debugging.
      */
     std::string _name;
+
+    /* When we're blocked, the lock clock is space available for the
+     * locking package to make use of to ensure fairness, by tracking
+     * how long a thread has been waiting for a lock/resource.
+     */
+    uint32_t _lockClock;
 
     /* list of threads waiting for join */
     ThreadEntry _joinEntry;
@@ -513,5 +519,14 @@ class ThreadDispatcher {
 
     static void pthreadTop(const char *namep = 0);
 };
+
+/* lollipop comparison */
+int threadClockCmp(uint32_t a, uint32_t b);
+
+/* max # of read locks before we have to grant a write lock */
+static const uint32_t threadClockReadWindow = 12;
+
+/* max # of write or exclusive locks before we grant a conflicting lock */
+static const uint32_t threadClockWriteWindow = 2;
 
 #endif /* __THREAD_H_ENV__ */ 

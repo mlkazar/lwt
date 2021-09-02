@@ -180,9 +180,9 @@ class ThreadLockRw : public ThreadBaseLock {
         _reasonUpgradeToWrite = 4}; /* have upgrade lock, waiting to upgrade it to write */
 
     uint32_t _readCount;
+    uint32_t _lockClock;        /* opaque for use by lock package */
     uint8_t _writeCount;        /* always 0 or 1 */
     uint8_t _upgradeCount;      /* always 0 or 1 */
-    uint8_t _fairness;          /* true if last granted is write/upgradelock */
     uint8_t _upgradeToWrite;    /* true iff upgrade to write is pending */
 
     /* note that when a thread is waiting to upgrade to a write lock from an upgrade
@@ -209,11 +209,11 @@ class ThreadLockRw : public ThreadBaseLock {
 
     ThreadLockRw() {
         _ownerp = NULL;
-        _fairness = 0;
         _readCount = 0;
         _writeCount = 0;
         _upgradeCount = 0;
         _upgradeToWrite = 0;
+        _lockClock = 0;
         _ownerp = NULL;
     }
     
@@ -234,6 +234,12 @@ class ThreadLockRw : public ThreadBaseLock {
     void upgradeToWrite();
 
     void releaseUpgrade(ThreadLockTracker *trackerp = 0);
+
+    int readUnfair(Thread *grantThreadp = NULL);
+
+    int upgradeUnfair();
+
+    int writeUnfair();
 
     void lockMode(ThreadLockTracker::LockMode mode, ThreadLockTracker *trackerp = 0) {
         if (mode == ThreadLockTracker::_lockRead)

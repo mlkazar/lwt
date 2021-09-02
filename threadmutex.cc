@@ -339,6 +339,7 @@ ThreadLockRw::lockWrite(ThreadLockTracker *trackerp)
     
     if (_writeCount + _upgradeCount + _readCount > 0) {
         _writesWaiting.append(threadp);
+        threadp->_lockClock = _lockClock++;
         threadp->sleep(&_lock);
         _lock.take();
     }
@@ -347,7 +348,6 @@ ThreadLockRw::lockWrite(ThreadLockTracker *trackerp)
          * there are no fairness issues because if anyone was waiting for a lock,
          * someone would have to actually be holding the lock now, and no one is.
          */
-        _fairness = 1; /* last granted lock was a write lock */
         _ownerp = threadp;
         _writeCount++;
     }
@@ -373,7 +373,6 @@ ThreadLockRw::tryWrite(ThreadLockTracker *trackerp)
          * there are no fairness issues because if anyone was waiting for a lock,
          * someone would have to actually be holding the lock now, and no one is.
          */
-         _fairness = 1;
          _ownerp = threadp;
          _writeCount++;
     }
@@ -382,99 +381,143 @@ ThreadLockRw::tryWrite(ThreadLockTracker *trackerp)
     return 1;
 }
 
+/* must be called with the spin lock held, and after you've checked
+ * that there's a read lock to try to grant.
+ */
+int
+ThreadLockRw::readUnfair(Thread *grantThreadp)
+{
+    Thread *starveThreadp;
+    uint32_t readLockClock;
+
+    /* lock we want to grant */
+    if (grantThreadp)
+        readLockClock = grantThreadp->_lockClock;
+    else
+        readLockClock = _readsWaiting.head()->_lockClock;
+
+    /* see if the guy we might be starving has been waiting too long, i.e.
+     * more than threadClockWindow queues longer than the lock we're
+     * thinking of granting.  If so, don't grant the reader.
+     */
+    if ((starveThreadp = _writesWaiting.head()) != NULL) {
+        if ( threadClockCmp( starveThreadp->_lockClock,
+                             readLockClock - threadClockReadWindow) < 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* must be called with the spin lock held; check to see if we'd be starving the
+ * write lock by granting this upgrade lock.
+ */
+int
+ThreadLockRw::upgradeUnfair()
+{
+    Thread *starveThreadp;
+    Thread *grantLockp;
+
+    /* lock we want to grant */
+    grantLockp = _upgradesWaiting.head();
+
+    /* see if the guy we might be starving has been waiting too long, i.e.
+     * more than threadClockWindow queues longer than the lock we're
+     * thinking of granting.  If so, don't grant the reader.
+     */
+    if ((starveThreadp = _writesWaiting.head()) != NULL) {
+        if ( threadClockCmp( starveThreadp->_lockClock,
+                             grantLockp->_lockClock - threadClockWriteWindow) < 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int
+ThreadLockRw::writeUnfair()
+{
+    Thread *starveThreadp;
+    Thread *grantLockp;
+
+    /* lock we want to grant */
+    grantLockp = _writesWaiting.head();
+
+    /* see if the guy we might be starving has been waiting too long, i.e.
+     * more than threadClockWindow queues longer than the lock we're
+     * thinking of granting.  If so, don't grant the reader.
+     */
+    if ((starveThreadp = _upgradesWaiting.head()) != NULL) {
+        if ( threadClockCmp( starveThreadp->_lockClock,
+                             grantLockp->_lockClock - threadClockWriteWindow) < 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* must be called with the internal _lock held for the read/write lock */
 void
 ThreadLockRw::wakeNext()
 {
-    Thread *threadp;
+    Thread *grantThreadp;
 
-    /* check the upgrade request first */
-    if ( _upgradeCount > 0 && _readCount == 0 && _upgradeToWrite) {
-        assert(_ownerp);
-        _upgradeCount = 0;
-        _upgradeToWrite = 0;
-        _writeCount++;
-        _ownerp->queue();
-        /* the owner now has a write lock */
+    while ((grantThreadp = _readsWaiting.head()) != NULL) {
+        if ( _writeCount == 0) {
+            /* see if granting this read lock would be unfair */
+            if ( readUnfair(NULL))
+                break;
+
+            /* we can grant this read lock to the thread */
+            _readsWaiting.pop();
+            _readCount++;
+            grantThreadp->queue();
+        } /* can grant a read lock */
+        else {
+            /* can't grant any more read locks */
+            break;
+        }
+    } /* loop granting read locks while we can */
+
+    if (_upgradeToWrite) {
+        osp_assert(_ownerp != NULL && _writesWaiting.head() == _ownerp && _upgradeCount > 0);
+        if (_readCount == 0) {
+            _writesWaiting.remove(_ownerp);
+            _upgradeCount = 0;
+            _writeCount = 1;
+            _upgradeToWrite = 0;
+            _ownerp->queue();
+        }
+
+        /* if we're in the middle of an upgrade, we're not going to be
+         * able to grant a write or upgrade lock anyway, and if we
+         * just performed the upgrade, we have a write lock and can't
+         * grant anything else, either.
+         */
         return;
     }
 
-    if (_fairness == 1) {
-        /* last lock owner was a writer, so wakeup waiting readers and first
-         * upgrade lock, if any.  Start with the readers.
-         */
-        if (_writeCount == 0 && !_upgradeToWrite) {
-            while((threadp = _readsWaiting.pop()) != NULL) {
-                _readCount++;
-                _fairness = 0;
-                threadp->queue();
-            }
-        }
-
-        if (_ownerp == NULL) {
-            /* neither write or upgrade locked, see if we can grant an upgrade lock */
-            if ((threadp = _upgradesWaiting.pop()) != NULL) {
-                _ownerp = threadp;
-                _upgradeCount++;
-                _upgradeToWrite = 0;
-                _fairness = 0;
-                threadp->queue();
+    if ((grantThreadp = _upgradesWaiting.head()) != NULL) {
+        /* we have an upgrade lock waiting */
+        if ( _writeCount == 0 && _upgradeCount == 0) {
+            if ( !upgradeUnfair()) {
+                _upgradeCount = 1;
+                _ownerp = grantThreadp;
+                _upgradesWaiting.pop();
+                grantThreadp->queue();
                 return;
             }
         }
-
-        threadp = _writesWaiting.head();
-        if ( threadp &&
-             (_readCount == 0 && _ownerp == NULL)) {
-            /* we have a writer waiting and no conflicts */
-            _ownerp = threadp;
-            _writesWaiting.remove(threadp);
-            _writeCount++;
-            threadp->queue();
-        } /* no readers */
-        return;
     }
-    else {
-        /* last lock owner was some number of readers, and maybe an
-         * upgrader; must check writers first.  Note that the
-         * writesWaiting queue includes upgraders waiting to get a
-         * write lock.  If there are readers or upgraders waiting,
-         * don't run them unless a writer gets a shot first.
-         */
-        threadp = _writesWaiting.head();
-        if ( threadp &&
-             (_readCount == 0 && _ownerp == NULL)) {
-            /* we have a writer waiting and no conflicts */
-            _ownerp = threadp;
-            _writesWaiting.remove(threadp);
-            _writeCount++;
-            threadp->queue();
-            return;
-        } /* no readers */
 
-        /* if we get here, we have no waiting writers, so we can let
-         * readers / upgrades in, and those are all we actually have
-         * waiting.  Note that if we have a pending upgradeToWrite,
-         * we don't want to let any more readers in, to avoid starving
-         * the upgrade.
-         */
-        if (_writeCount > 0 || _upgradeToWrite)
+    /* otherwise, try to grant a write lock */
+    if ((grantThreadp = _writesWaiting.head()) != NULL) {
+        if (_readCount + _writeCount + _upgradeCount == 0) {
+            _writesWaiting.pop();
+            _writeCount = 1;
+            _ownerp = grantThreadp;
+            grantThreadp->queue();
             return;
-        
-        while((threadp = _readsWaiting.pop()) != NULL) {
-            _readCount++;
-            _fairness = 0;
-            threadp->queue();
-        }
-
-        if (_ownerp == NULL &&
-            ((threadp = _upgradesWaiting.pop()) != NULL)) {
-            /* grant an upgrade lock */
-            _ownerp = threadp;
-            _upgradeCount++;
-            _upgradeToWrite = 0;
-            _fairness = 0;
-            threadp->queue();
         }
     }
 }
@@ -524,11 +567,6 @@ ThreadLockRw::releaseUpgrade(ThreadLockTracker *trackerp)
     _upgradeCount--;
     _ownerp = NULL;
 
-    /* cleanup tracker tracking state, if any */
-    if (trackerp) {
-        _trackerQueue.remove(trackerp);
-    }
-
     wakeNext();
     _lock.release();
 }
@@ -542,37 +580,22 @@ ThreadLockRw::lockRead(ThreadLockTracker *trackerp)
 
     _lock.take();
     
-    if (_fairness == 0) {
-        /* if we have a writer waiting, and we last granted readers,
-         * so we can't grant any more readers now.
-         */
-        if (_writesWaiting.head()) {
-            _readsWaiting.append(threadp);
-            threadp->sleep(&_lock);
-
+    /* no writers waiting, we can add a read lock */
+    if (_writeCount == 0) {
+        if ( !readUnfair(threadp)) {
             if (trackerp) {
-                _lock.take();
                 trackerp->_lockMode = ThreadLockTracker::_lockRead;
                 trackerp->_threadp = threadp;
-                _trackerQueue.append( trackerp);
-                _lock.release();
+                _trackerQueue.append(trackerp);
             }
+            _readCount++;
+            _lock.release();
             return;
         }
     }
 
-    /* no writers waiting, we can add a read lock */
-    if (_writeCount == 0) {
-        if (trackerp) {
-            trackerp->_lockMode = ThreadLockTracker::_lockRead;
-            trackerp->_threadp = threadp;
-            _trackerQueue.append(trackerp);
-        }
-        _readCount++;
-        _lock.release();
-        return;
-    }
-
+    /* here, we queue the reader */
+    threadp->_lockClock = _lockClock++;
     _readsWaiting.append(threadp);
     threadp->sleep(&_lock);
 
@@ -692,6 +715,15 @@ ThreadLockRw::upgradeToWrite()
          * lock while holding an upgrade lock.
          */
         _upgradeToWrite = 1;
+
+        /* to avoid fairness issues, make it look like we've been queued a while.  Also,
+         * since we're still holding the upgrade lock while we're waiting to upgrade,
+         * we need to be at the head of the writesWaiting queue, since we can't allow
+         * any other writers in.
+         */
+        threadp->_lockClock = _lockClock - 100;
+        _writesWaiting.prepend(threadp);
+
         threadp->sleep(&_lock);
         _lock.take();
     }

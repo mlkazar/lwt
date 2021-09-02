@@ -707,3 +707,15 @@ ThreadMain::queue()
     assert(_wiredDispatcherp != NULL);
     _wiredDispatcherp->queueThread(this);
 }
+
+/********************************Utilities********************************/
+int
+threadClockCmp( uint32_t a, uint32_t b)
+{
+    if (a == b)
+        return 0;
+    else if (((int32_t)(a - b)) < 0)
+        return -1;
+    else
+        return 1;
+}
