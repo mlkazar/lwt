@@ -235,7 +235,7 @@ class ThreadLockRw : public ThreadBaseLock {
 
     void releaseUpgrade(ThreadLockTracker *trackerp = 0);
 
-    int readUnfair(Thread *grantThreadp = NULL);
+    int readUnfair(int waitingLock);
 
     int upgradeUnfair();
 
