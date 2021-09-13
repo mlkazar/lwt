@@ -17,6 +17,7 @@
 #define OSP_TRASHONFREE       1
 // #undef OSP_TRASHONFREE
 
+/* This structure must be a multiple of 16 bytes long */
 class ospMemHdr {
 public:
     static const uint16_t _magicFree = 0x1f1f;
@@ -27,6 +28,8 @@ public:
     uint8_t _padding1;
     uint32_t _allocSize;        /* bytes including header */
     void *_retAddrp;
+    void *_retAddr1p;
+    void *_retAddr2p;
 #ifdef OSP_TRAILERBYTES
     ospMemHdr *_dqNextp;
     ospMemHdr *_dqPrevp;
@@ -35,6 +38,41 @@ public:
 
 SpinLock _ospMemLock;
 dqueue<ospMemHdr> _ospMemAllocs;
+
+void *
+ospRetAddr(void *prevRetAddrp)
+{
+    uint32_t i;
+    void **datap;
+    void **framep = NULL;
+    void **newFramep = NULL;
+
+    datap = &prevRetAddrp;
+    for(i=1;i<20;i++) { /* start at 1 to avoid finding our parameter */
+        if (datap[i] == prevRetAddrp) {
+            framep = datap+(i-1);
+            break;
+        }
+    }
+
+    if (framep == NULL)
+        return NULL;
+
+    /* make sure the new frame is 8 byte aligned, and somewhat (but
+     * not too far) past the previous frame.  If we want to go further
+     * up the stack, we can repeat the next few lines repeatedly.
+     * Basically, each frame pointer points to the caller's frame
+     * pointer, and the 64 bit pointer immediately following the frame
+     * pointer is the saved return address.
+     */
+    newFramep = (void **) *framep;
+    if (((uint64_t)newFramep) & 7)
+        return 0;
+    if ( (uint64_t)newFramep - (uint64_t)framep > 0x400)
+        return 0;
+
+    return newFramep[1];
+}
 
 void *
 operator new(size_t asize)
@@ -58,6 +96,7 @@ operator new(size_t asize)
     hdrp->_allocSize = allocSize;
     hdrp->_padding1 = 0x00;
     hdrp->_retAddrp = __builtin_return_address(0);
+    hdrp->_retAddr1p = ospRetAddr(hdrp->_retAddrp);
 #ifdef OSP_TRAILERBYTES
     // printf("MEM ALLOC hdrp=%p ret=%p\n", hdrp, hdrp->_retAddrp);
     _ospMemLock.take();
