@@ -493,7 +493,7 @@ ThreadDispatcher::setup(uint16_t ndispatchers)
         char thr_name[8];
 
         pthread_create(&junk, NULL, dispatcherTop, _allDispatchers[i]);
-        snprintf(tbuffer, sizeof(thr_name), "exec%d", i);
+        snprintf(thr_name, sizeof(thr_name), "exec%d", i);
         pthread_setname_np(junk, thr_name);
     }
 
