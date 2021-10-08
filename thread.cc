@@ -490,7 +490,11 @@ ThreadDispatcher::setup(uint16_t ndispatchers)
      * array.
      */
     for(i=0;i<ndispatchers;i++) {
+        char thr_name[8];
+
         pthread_create(&junk, NULL, dispatcherTop, _allDispatchers[i]);
+        snprintf(tbuffer, sizeof(thr_name), "exec%d", i);
+        pthread_setname_np(junk, thr_name);
     }
 
     pthreadTop("First thread");

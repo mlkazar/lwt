@@ -154,7 +154,7 @@ main(int argc, char **argv)
     /* start the dispatcher */
     ThreadDispatcher::setup(/* # of pthreads */ 2);
     
-    sysp = new EpollSys();
+    sysp = new EpollSys("eptest");
 
     for(i=0;i<threadCount;i++) {
         testsp[i] = p = new PipeTest(sysp, iterations);

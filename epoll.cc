@@ -44,11 +44,12 @@ EpollOne::EpollOne()
 }
 
 void
-EpollOne::init(EpollSys *sysp) {
+EpollOne::init(EpollSys *sysp, const char * threadName) {
     pthread_t junkId;
 
     _sysp = sysp;
     pthread_create(&junkId, NULL, &EpollOne::threadStart, this);
+    pthread_setname_np(junkId, threadName);
 }
 
 /* The way that shutting down this code works is first, you close all the EpollEvent

@@ -53,6 +53,7 @@ ThreadTimer::init()
     _threadRunning = 1;
 
     pthread_create(&junkId, NULL, &ThreadTimer::timerManager, NULL);
+    pthread_setname_np(junkId, "timer");
 
     _didInit = 1;
 }

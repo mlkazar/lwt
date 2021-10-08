@@ -92,7 +92,7 @@ class EpollOne {
 
     void wakeThreadNL();
 
-    void init(EpollSys *sysp);
+    void init(EpollSys *sysp, const char* name);
 };
 
 class EpollSys {
@@ -106,10 +106,14 @@ class EpollSys {
     EpollOne _writeOne;
 
  public:
-    EpollSys() {
+    EpollSys(const char *name = NULL) {
         _refCount = 1;
-        _readOne.init(this);
-        _writeOne.init(this);
+        char thr_name[32];
+
+        snprintf(thr_name, sizeof(thr_name), "%s:rp", name ? name : "unk");
+        _readOne.init(this,thr_name);
+        snprintf(thr_name, sizeof(thr_name), "%s:wp", name ? name : "unk");
+        _writeOne.init(this,thr_name);
     }
 
     void hold() {
