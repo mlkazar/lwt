@@ -461,7 +461,7 @@ ThreadDispatcher::pthreadTop(const char *namep)
 
 /* External; utility function to create a number of dispatchers */
 /* static */ void
-ThreadDispatcher::setup(uint16_t ndispatchers)
+ThreadDispatcher::setup(uint16_t ndispatchers, int32_t spinUsec)
 {
     pthread_t junk;
     uint32_t i;
@@ -471,7 +471,11 @@ ThreadDispatcher::setup(uint16_t ndispatchers)
     cpuCount = getCpuCount();
     if (ndispatchers > cpuCount-1)
         ndispatchers = cpuCount - 1;
-    
+
+    if (spinUsec>=0) {
+        _spinTicks = spinUsec * 2200; //TODO(thhicks):  need something better than this hack here
+    }
+
     /* if we don't have many CPUs, don't risk slowing things down by having a dispatcher
      * spin before going idle.
      */

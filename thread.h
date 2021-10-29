@@ -491,7 +491,7 @@ class ThreadDispatcher {
     void dispatch();
 
     /* called to create a bunch of dispatchers and their pthreads */
-    static void setup(uint16_t ndispatchers);
+    static void setup(uint16_t ndispatchers, int32_t spinUsec = -1);
 
     int isSleeping() {
         int isSleeping;
