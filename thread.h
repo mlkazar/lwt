@@ -165,6 +165,15 @@ class Thread {
      */
     std::string _name;
 
+    /* timespec for when the thread was created */
+    struct timespec _createTs;
+
+    /* total run time in ticks for this thread */
+    uint64_t _runTicks;
+
+    /* last time this thread was started, for computing run time at next blocking */
+    uint64_t _lastStartTicks;
+
     /* When we're blocked, the lock clock is space available for the
      * locking package to make use of to ensure fairness, by tracking
      * how long a thread has been waiting for a lock/resource.

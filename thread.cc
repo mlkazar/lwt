@@ -27,6 +27,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/time.h>
+#include <time.h>
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
@@ -78,6 +79,8 @@ Thread::init(std::string name, uint32_t stackSize)
     _exitValuep = NULL;
     _exited = 0;
     _name = name;
+    clock_gettime(CLOCK_REALTIME, &_createTs);
+    _runTicks = 0;
     _stackp = (char *) malloc(_stackSize);
     if (_trackStackUsage)
         memset(_stackp, 0x7A, _stackSize);
@@ -350,6 +353,7 @@ ThreadDispatcher::dispatch()
             _runQueue._queueLock.release();
             _currentThreadp = newThreadp;
             newThreadp->_currentDispatcherp = this;
+            newThreadp->_lastStartTicks = threadCpuTicks();
             newThreadp->resume();   /* doesn't return */
         }
     }
@@ -376,6 +380,10 @@ void
 ThreadDispatcher::sleep(Thread *threadp, SpinLock *lockp)
 {
     assert(threadp == _currentThreadp);
+
+    /* adjust run time */
+    threadp->_runTicks += threadCpuTicks() - threadp->_lastStartTicks;
+
     _currentThreadp = NULL;
     threadp->_goingToSleep = 1;
     GETCONTEXT(&threadp->_ctx);
