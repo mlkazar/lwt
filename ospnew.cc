@@ -110,6 +110,10 @@ operator new(size_t asize)
 void
 operator delete(void *aptr) noexcept
 {
+    if (!aptr) {
+        return;
+    }
+
     ospMemHdr *hdrp = (ospMemHdr *)aptr;
     hdrp--;
 #ifdef OSP_TRAILERBYTES

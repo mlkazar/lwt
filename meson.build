@@ -77,3 +77,5 @@ executable('threadpooltest',
   link_args: '-pthread')
 
 install_headers(lwt_headers)
+
+subdir('tests')
