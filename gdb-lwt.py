@@ -113,9 +113,11 @@ class uthread(gdb.Command):
         # NB: the 88 is the offset of the general registers in the thread structure
         # when counting sizes don't forget that there's a _vptr at the
         # start of the thread structure
-        v = int(argv[0], 0) + 88
+        arg = gdb.parse_and_eval(argv[0])
+        v = int(arg) + 88
         t1 = gdb.lookup_type("ucontext_t").pointer()
         ptr = gdb.Value(v).cast(t1)
         self.thread_context.set_machine_regs_from_thread(ptr)
+        print("Setting up thread ", int(arg))
 
 uthread()
