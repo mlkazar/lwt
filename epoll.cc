@@ -117,7 +117,6 @@ EpollOne::threadStart(void *argp)
         
         /* do the wait */
         evCount = epoll_wait(onep->_epFd, localEvents, nevents, -1);
-        Thread::traceProc(1, "epoll: back from wait syscall", 0,0,0,0,0,0);
 
         if (evCount < 0) {
             if (errno == EINTR)
@@ -133,15 +132,12 @@ EpollOne::threadStart(void *argp)
             ep = (EpollEvent *) eventp->data.ptr;
             if ((uint8_t *) ep != &onep->_specialEventWakeup) {
                 ep->_triggered = 1;
-                Thread::traceProc(1, "epoll: triggered evp=%p fd=%d flags=%d",
-                                  (uint64_t) ep, ep->_fd , ep->_flags, 0, 0, 0);
                 ep->_cv.broadcast();
             }
             else {
                 /* read from the file descriptor */
                 uint8_t tc;
                 code = read(onep->_readWakeupFd, &tc, 1);
-                Thread::traceProc(1, "epoll: after nothing-to-do pipe read", 0, 0, 0, 0, 0, 0);
             }
         }
         sysp->_lock.release();
@@ -156,20 +152,6 @@ EpollSys::releaseNL()
         delete this;
     }
 }
-
-#if 0
-int32_t
-EpollSys::addEvent(EpollEvent *ep) {
-    int32_t code;
-
-    if (ep->_flags & EpollEvent::epollIn)
-        code = _readOne.addEvent(ep);
-    else
-        code = _writeOne.addEvent(ep);
-
-    return code;
-}
-#endif
 
 void
 EpollOne::wakeThreadNL()

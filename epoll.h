@@ -238,9 +238,6 @@ class EpollEvent {
 
     /* note that this returns immediately if the event has been closed */
     int32_t wait(Flags fl) {
-        Thread::traceProc(1, "epoll: starting wait call evp=%p flags=%d",
-                          (uint64_t) this, fl, 0, 0, 0, 0);
-
         _sysp->_lock.take();
 
         /* if this event has already been triggered, turn off the indicator
@@ -262,9 +259,6 @@ class EpollEvent {
         }
         _triggered = 0;
         _sysp->_lock.release();
-        Thread::traceProc( 1, "epoll: done waiting evp=%p flags=%d",
-                           (uint64_t) this, fl,
-                           0, 0, 0, 0);
         return (_closed? -1 : 0);
     }
 
