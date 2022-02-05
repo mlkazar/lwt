@@ -1,80 +1,88 @@
 subdir('alternatives')
 
 lwt_headers = '''
-  thread.h
-  threadmutex.h
-  threadpipe.h
-  osp.h
-  dqueue.h
-  epoll.h
-  threadtimer.h
-  spinlock.h
-  ospnew.h
-  ospnet.h
+    thread.h
+    threadmutex.h
+    threadpipe.h
+    osp.h
+    dqueue.h
+    epoll.h
+    threadtimer.h
+    spinlock.h
+    ospnew.h
+    ospnet.h
 '''.split()
 
 lwt_srcs = '''
-  epoll.cc
-  thread.cc
-  threadmutex.cc
-  threadpipe.cc
-  osp.cc
-  ospnew.cc
-  ospnet.cc
-  threadtimer.cc
-  threadpool.cc
+    epoll.cc
+    thread.cc
+    threadmutex.cc
+    threadpipe.cc
+    osp.cc
+    ospnew.cc
+    ospnet.cc
+    threadtimer.cc
+    threadpool.cc
+    lwt_pthread.cc
 '''.split()
 
 getcontext = custom_target('getcontext',command: cppasm_command, input: ['getcontext.s'], output: ['getcontext-temp.s','getcontext.o'])
 setcontext = custom_target('setcontext',command: cppasm_command, input: ['setcontext.s'], output: ['setcontext-temp.s','setcontext.o'])
 
 lwt_lib = static_library('thread',
-		     [lwt_srcs, getcontext, setcontext],
-		     install: false)
+    [lwt_srcs, getcontext, setcontext],
+    install: false
+)
+
+lwt_dep = declare_dependency(
+    link_with: [lwt_lib],
+    link_args: ['-pthread','-ldl']
+)
 
 executable('iftest', 
-  'iftest.cc', 
-  link_with: lwt_lib)
+    'iftest.cc', 
+    dependencies: [lwt_dep]
+)
 
 executable('ttest', 
-  'ttest.cc', 
-  link_with: lwt_lib, 
-  link_args: '-pthread')
+    'ttest.cc',
+    dependencies: lwt_dep
+)
 
 executable('timertest',
-  'timertest.cc',
-   link_with: lwt_lib,
-   link_args: '-pthread')
+    'timertest.cc',
+    dependencies: [lwt_dep]
+)
 
 executable('pipetest',
-  'pipetest.cc',
-  link_with: lwt_lib, 
-  link_args: '-pthread')
+    'pipetest.cc',
+    dependencies: [lwt_dep]
+)
 
 executable('mtest',
-  'mtest.cc',
-  link_with: lwt_lib,
-   link_args: '-pthread')
+    'mtest.cc',
+    dependencies: [lwt_dep]
+)
 
 executable('ptest',
-  'ptest.cc',
-  link_with: lwt_lib,
-  link_args: '-pthread')
+    'ptest.cc',
+    dependencies: [lwt_dep]
+)
 
 executable('eptest',
    'eptest.cc',
-   link_with: lwt_lib,
-   link_args: '-pthread')
+    dependencies: [lwt_dep]
+)
 
 executable('locktest',
-  'locktest.cc',
-  link_with: lwt_lib,
-  link_args: '-pthread')
+    'locktest.cc',
+    dependencies: [lwt_dep]
+)
 
 executable('threadpooltest',
-  'threadpooltest.cc',
-  link_with: lwt_lib,
-  link_args: '-pthread')
+    'threadpooltest.cc',
+    dependencies: [lwt_dep]
+)
 
 install_headers(lwt_headers)
 

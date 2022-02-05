@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-//#include "ospnew.h"
+#include "ospnew.h"
 
 TEST(OspTestNew,Basic)
 {

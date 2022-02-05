@@ -40,7 +40,7 @@ extern int xsetcontext(ucontext_t *ctxp);
 };
 
 pthread_key_t ThreadDispatcher::_dispatcherKey;
-pthread_once_t ThreadDispatcher::_once;
+pthread_once_t ThreadDispatcher::_once = PTHREAD_ONCE_INIT;
 ThreadDispatcher *ThreadDispatcher::_allDispatchers[ThreadDispatcher::_maxDispatchers];
 uint16_t ThreadDispatcher::_dispatcherCount;
 
@@ -270,6 +270,7 @@ Thread::getCurrent()
 {
     ThreadDispatcher *disp = ((ThreadDispatcher *)
                               pthread_getspecific(ThreadDispatcher::_dispatcherKey));
+    osp_assert(disp!=NULL);
     return disp->_currentThreadp;
 }
 
@@ -282,6 +283,10 @@ Thread::~Thread()
         _joinThreads.remove(&_joinEntry);
     }
     _globalThreadLock.release();
+
+    if (_stackp) {
+        free(_stackp);
+    }
 }
 
 /*****************ThreadIdle*****************/
@@ -310,6 +315,26 @@ ThreadIdle::start()
 
 /* statics */
 uint32_t ThreadDispatcher::_spinTicks = 2200000; /* default */
+
+ThreadDispatcher::~ThreadDispatcher()
+{
+    delete _currentThreadp;
+}
+
+/* A hook for destructing pthread thread specific keys; this
+ * is called whenever a thread exits and ensures that any
+ * thread specific lwt state is cleaned up/deallocated
+ */
+void ThreadDispatcherCleanup(void *arg)
+{
+    ThreadDispatcher *p = (ThreadDispatcher*)(arg);
+    delete p;
+}
+
+void ThreadDispatcher::globalInit()
+{
+    pthread_key_create(&_dispatcherKey, ThreadDispatcherCleanup);
+}
 
 /* Internal; find a thread in our dispastcher's run queue, and resume
  * it.  Go to sleep if there are no runnable threads.
@@ -438,12 +463,26 @@ ThreadDispatcher::dispatcherTop(void *ctx)
     return NULL;
 }
 
+bool
+ThreadDispatcher::isLwt()
+{
+    if (pthread_getspecific(_dispatcherKey)) {
+        return true;
+    } else {
+        return false;
+    }
+}
 /* static */ void
 ThreadDispatcher::pthreadTop(const char *namep)
 {
     ThreadDispatcher *mainDisp;
     Thread *mainThreadp;
     std::string name;
+
+    /* Ensure that this is only done once per thread */
+    if (isLwt()) {
+        return;
+    }
 
     /* create a special dispatcher for a pthread, so we can do
      * threadmutex operations from this thread without having to queue

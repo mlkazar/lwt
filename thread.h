@@ -479,9 +479,7 @@ class ThreadDispatcher {
     ThreadIdle _idle;
     ThreadHelper _helper;
 
-    static void globalInit() {
-        pthread_key_create(&_dispatcherKey, NULL);
-    }
+    static void globalInit();
 
     static ThreadDispatcher *currentDispatcher();
 
@@ -514,6 +512,8 @@ class ThreadDispatcher {
 
     ThreadDispatcher(int special=0);
 
+    virtual ~ThreadDispatcher();
+
     void pauseDispatching();
 
     void resumeDispatching();
@@ -527,6 +527,8 @@ class ThreadDispatcher {
     static int pausedAllDispatching();
 
     static void pthreadTop(const char *namep = 0);
+
+    static bool isLwt();
 };
 
 /* lollipop comparison */

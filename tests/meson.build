@@ -1,8 +1,16 @@
 test_osp = executable('test_osp',
-	   ['test_osp.cc','test_ospnew.cc'],
-       include_directories: include_directories('..'),
-	   #link_with: [lwt_lib],
-	   link_args: ['-lpthread', '-lgtest']
-	   )
+    ['test_main.cc','test_ospnew.cc'],
+    dependencies: [lwt_dep],
+    include_directories: include_directories('..'),
+    link_args: ['-lgtest']
+)
+
+test_lwt = executable('test_lwt',
+    ['test_main.cc','test_lwt_pthread.cc'],
+    dependencies: [lwt_dep],
+    include_directories: include_directories('..'),
+    link_args: ['-lgtest']
+)
 
 test('test_osp', test_osp)
+test('test_lwt', test_lwt)
