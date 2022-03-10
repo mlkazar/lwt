@@ -34,10 +34,19 @@ lwt_lib = static_library('thread',
     install: false
 )
 
-lwt_dep = declare_dependency(
-    link_with: [lwt_lib],
-    link_args: ['-pthread','-ldl']
-)
+if get_variable('deps_hack',true)
+    lwt_dep = declare_dependency(
+        link_with: [lwt_lib],
+        link_args: ['-pthread','-ldl']
+    )
+    lwt_gtest_dep = dependency('gtest')
+else
+    lwt_dep = declare_dependency(
+        dependencies: [pthread_dep, dl_dep],
+        link_with: [lwt_lib]
+    )
+    lwt_gtest_dep = gtest_dep
+endif
 
 executable('iftest', 
     'iftest.cc', 
