@@ -7,7 +7,7 @@ TEST(OspTestNew,Basic)
 
     struct Foo32 { int data[32]; };
 
-    struct Foo4G { int data[4*1024*1024*1024]; };
+    struct Foo4G { int data[/* 4*1024*1024*1024 = */ 4294967296 ]; };
 
     auto *pFoo1 = new Foo1();
     auto *pFoo32 = new Foo32();
