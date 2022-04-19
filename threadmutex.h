@@ -39,14 +39,16 @@ class ThreadMutexDetect;
  * In practice, either type of lock will have to be implemented in terms of
  * spin locks to make this really work when the cond variable goes to sleep.
  */
-class ThreadBaseLock {
+class ThreadBaseLock  {
  public:
     long long _waitUs;
     SpinLock _lock;
 
     virtual void take() = 0;
+    virtual void lock() { take(); }
 
     virtual void release() = 0;
+    virtual void unlock() { release(); };
 
     virtual int tryLock() = 0;
 
