@@ -26,7 +26,8 @@ public:
     uint16_t _magic;
     uint8_t _hdrSize;
     uint8_t _padding1;
-    uint32_t _allocSize;        /* bytes including header */
+    uint32_t _padding2;
+    size_t _allocSize;        /* bytes including header */
     void *_retAddrp;
     void *_retAddr1p;
     void *_retAddr2p;
@@ -34,6 +35,7 @@ public:
     ospMemHdr *_dqNextp;
     ospMemHdr *_dqPrevp;
 #endif
+    void *_padding3;
 };
 
 SpinLock _ospMemLock;
