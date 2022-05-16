@@ -10,21 +10,25 @@ test('test_lwt',executable('test_lwt',
     include_directories: include_directories('..')
 ))
 
+
+#TODO:  Remove this once lwt is merged into hydra
+temp_boost_process_dep = meson.get_compiler('cpp').find_library('boost_filesystem')
+
 test('test_exception_lwt',executable('test_exception_lwt',
     ['test_exception.cc','test_lwtmain.cc'],
-    dependencies: [lwt_dep, gtest_dep, boost_stacktrace_dep, boost_process_dep],
+    dependencies: [lwt_dep, gtest_dep, boost_stacktrace_dep, temp_boost_process_dep],
     include_directories: include_directories('..')
 ))
 
 test('test_exception_pthread',executable('test_exception_pthread',
     ['test_exception.cc','test_pthreadmain.cc'],
-    dependencies: [lwt_dep, gtest_dep, boost_stacktrace_dep, boost_process_dep],
+    dependencies: [lwt_dep, gtest_dep, boost_stacktrace_dep, temp_boost_process_dep],
     include_directories: include_directories('..')
 ))
 
 test('test_assert',executable('test_assert',
     ['test_assert.cc','test_lwtmain.cc'],
-    dependencies: [lwt_dep, gtest_dep, boost_stacktrace_dep, boost_process_dep],
+    dependencies: [lwt_dep, gtest_dep, boost_stacktrace_dep, temp_boost_process_dep],
     include_directories: include_directories('..')
 ))
 
