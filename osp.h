@@ -32,13 +32,16 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <iostream>
 #include <boost/stacktrace.hpp>
 
-#define thread_assert(x)                             \
-    do                                               \
-    {                                                \
-        std::cerr << "Stacktrace:" << std::endl      \
-                  << boost::stacktrace::stacktrace() \
-                  << std::endl;                      \
-        assert(x);                                   \
+#define thread_assert(x)                                 \
+    do                                                   \
+    {                                                    \
+        if (!(x))                                        \
+        {                                                \
+            std::cerr << "Stacktrace:" << std::endl      \
+                      << boost::stacktrace::stacktrace() \
+                      << std::endl;                      \
+            assert(x);                                   \
+        }                                                \
     } while (0)
 
 #define osp_assert(x)                                                  \
