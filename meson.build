@@ -11,6 +11,7 @@ lwt_headers = '''
     spinlock.h
     ospnew.h
     ospnet.h
+    Exception.h
 '''.split()
 
 lwt_srcs = '''
@@ -24,6 +25,7 @@ lwt_srcs = '''
     threadtimer.cc
     threadpool.cc
     lwt_pthread.cc
+    Exception.cc
 '''.split()
 
 getcontext = custom_target('getcontext',command: cppasm_command, input: ['getcontext.s'], output: ['getcontext-temp.s','getcontext.o'])
@@ -35,7 +37,7 @@ lwt_lib = static_library('thread',
 )
 
 lwt_dep = declare_dependency(
-    dependencies: [pthread_dep, dl_dep],
+    dependencies: [pthread_dep, dl_dep, boost_stacktrace_dep],
     link_with: [lwt_lib]
 )
 

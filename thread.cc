@@ -22,6 +22,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
  */
+#include <iostream>
 
 #include <pthread.h>
 #include <unistd.h>
@@ -33,6 +34,8 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <string.h>
 
 #include "thread.h"
+#include "Exception.h"
+
 
 extern "C" {
 extern int xgetcontext(ucontext_t *ctxp);
@@ -115,10 +118,18 @@ Thread::ctxStart(unsigned int p1, unsigned int p2)
 #endif
     Thread *threadp = (Thread *)threadInt;
 
-    threadp->start();
+    try {
+        threadp->start();
 
-    /* if the thread returns, just have it exit */
-    threadp->exit(NULL);
+        /* if the thread returns, just have it exit */
+        threadp->exit(NULL);
+    } catch (Exception &e) {
+        GetExceptionDetails(std::cerr, e);
+        assert("unhandled Exception"==nullptr);
+    } catch (std::exception &e) {
+        GetExceptionDetails(std::cerr, e);
+        assert("unhandled std::exception"==nullptr);
+    }
 }
 
 /* external: thread exits; if joinable, this doesn't delete the

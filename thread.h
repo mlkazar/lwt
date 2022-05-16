@@ -310,6 +310,10 @@ class Thread {
         _name = name;
     }
 
+    std::string& name() {
+        return _name;
+    }
+
     int32_t join(void **ptrpp);
 
     /* provide a way for someone to add reference counts and intercept our
